@@ -12,9 +12,9 @@ use crate::tool_tags::{TagPair, ToolTags};
 #[path = "models/payloads.rs"]
 mod payloads;
 pub use payloads::{
-    BrowseFilesResponse, ChatMessage, ChatRequest, ChatResponse, ConversationContentResponse,
-    ConversationFile, ConversationsResponse, FileItem, MessagePart, ModelLoadRequest, ModelResponse,
-    ModelStatus, ToolTiming, ToolTimingLive, TokenData,
+    ApprovalRequest, BrowseFilesResponse, ChatMessage, ChatRequest, ChatResponse,
+    ConversationContentResponse, ConversationFile, ConversationsResponse, FileItem, MessagePart,
+    ModelLoadRequest, ModelResponse, ModelStatus, ToolTiming, ToolTimingLive, TokenData,
 };
 
 // Import logging macros

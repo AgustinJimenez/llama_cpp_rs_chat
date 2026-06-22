@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 
 import type { ChatRequest } from '../types';
 
-import type { ChatTransport, TimingInfo } from './chatTransport';
+import type { ApprovalRequest, ChatTransport, TimingInfo } from './chatTransport';
 import { isTauriEnv } from './tauri';
 
 const TOAST_DURATION_MS = 5000;
@@ -33,6 +33,8 @@ export interface GenerationCallbacks {
   onError: (error: string) => void;
   /** A tool call completed — name + how long it took (live, not just on load) */
   onToolTiming?: (name: string, durationMs: number) => void;
+  /** A dangerous tool call is waiting for human approval */
+  onApprovalRequired?: (request: ApprovalRequest) => void;
 }
 
 export interface GenerationResult {
@@ -107,6 +109,9 @@ export class LocalGenerationStream implements GenerationStream {
         },
         onToolTiming: (name, durationMs) => {
           callbacks.onToolTiming?.(name, durationMs);
+        },
+        onApprovalRequired: (approvalReq) => {
+          callbacks.onApprovalRequired?.(approvalReq);
         },
       },
       signal,

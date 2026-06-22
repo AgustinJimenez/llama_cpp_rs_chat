@@ -271,6 +271,28 @@ pub async fn handle_websocket(
                                             });
                                             let _ = ws_sender.send(WsMessage::Text(timing_json.to_string())).await;
                                         }
+                                        // Approval requests: flush pending tokens first, then send the gate
+                                        if let Some(ref approval) = token_data.approval_required {
+                                            let _ = flush_pending_tokens(
+                                                &mut ws_sender,
+                                                &mut pending_tokens,
+                                                &mut pending_tokens_used,
+                                                &mut pending_max_tokens,
+                                                &mut pending_gen_tok_per_sec,
+                                                &mut pending_gen_tokens,
+                                                &mut next_flush,
+                                                &mut debug,
+                                            ).await;
+                                            let approval_json = serde_json::json!({
+                                                "type": "approval_required",
+                                                "id": approval.id,
+                                                "tool": approval.tool,
+                                                "args": approval.args,
+                                                "reason": approval.reason
+                                            });
+                                            let _ = ws_sender.send(WsMessage::Text(approval_json.to_string())).await;
+                                            let _ = ws_sender.flush().await;
+                                        }
                                         pending_tokens.push_str(&token_data.token);
                                         pending_tokens_used = Some(token_data.tokens_used);
                                         pending_max_tokens = Some(token_data.max_tokens);

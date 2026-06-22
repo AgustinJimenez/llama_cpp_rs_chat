@@ -16,6 +16,7 @@ pub mod hub_downloads;
 pub mod logger;
 #[allow(dead_code)]
 pub mod mcp;
+pub mod pending_approvals;
 pub mod schema;
 
 use rusqlite::Connection;

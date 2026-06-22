@@ -609,6 +609,20 @@ pub async fn dispatch(
             super::routes::remote::handle_regenerate_token(db.clone()).await?
         }
 
+        // Tool approval: remote operator approves/rejects dangerous execute_command calls
+        (&Method::POST, _)
+            if path.starts_with("/api/approval/") && path.ends_with("/approve") =>
+        {
+            let id = &path["/api/approval/".len()..path.len() - "/approve".len()];
+            super::routes::approval::handle_approve(id, db.clone()).await?
+        }
+        (&Method::POST, _)
+            if path.starts_with("/api/approval/") && path.ends_with("/reject") =>
+        {
+            let id = &path["/api/approval/".len()..path.len() - "/reject".len()];
+            super::routes::approval::handle_reject(id, db.clone()).await?
+        }
+
         // OpenAI-compatible server endpoints (for clients like openclaw)
         (&Method::GET, "/v1/models") => {
             super::routes::openai_compat_server::handle_get_models(bridge.clone()).await?

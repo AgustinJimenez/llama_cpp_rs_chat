@@ -19,6 +19,15 @@ pub struct ToolTimingLive {
     pub duration_ms: u64,
 }
 
+/// Carries an approval request to the frontend for dangerous tool calls.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ApprovalRequest {
+    pub id: String,
+    pub tool: String,
+    pub args: serde_json::Value,
+    pub reason: String,
+}
+
 #[derive(Serialize, Clone, Default)]
 pub struct TokenData {
     pub token: String,
@@ -32,6 +41,9 @@ pub struct TokenData {
     pub gen_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_timing: Option<ToolTimingLive>,
+    /// When present, the frontend should pause and show an approve/reject dialog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_required: Option<ApprovalRequest>,
 }
 
 #[derive(Deserialize)]

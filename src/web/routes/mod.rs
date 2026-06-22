@@ -84,3 +84,7 @@ pub mod openai_compat_server {
 pub mod remote {
     pub use llama_chat_web::routes::remote::*;
 }
+#[allow(unused_imports)]
+pub mod approval {
+    pub use llama_chat_web::routes::approval::*;
+}

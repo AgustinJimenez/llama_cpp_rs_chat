@@ -12,11 +12,11 @@
  *
  * Both local and remote providers go through this single path.
  */
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 
 import type { Message } from '../types';
-import type { ChatTransport, TimingInfo } from '../utils/chatTransport';
+import type { ApprovalRequest, ChatTransport, TimingInfo } from '../utils/chatTransport';
 import { createGenerationStream, type GenerationRequest } from '../utils/generationStream';
 import { processConversationMessages } from '../utils/messageUtils';
 import { notifyIfUnfocused } from '../utils/tauri';
@@ -94,6 +94,7 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
   const autoContinueCountRef = useRef(0);
   const compactingRef = useRef(false);
   const lastTimingsRef = useRef<Partial<TimingInfo>>({});
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);
 
   // Fetch system prompt from backend and prepend to messages
   const fetchSystemPrompt = useCallback(
@@ -281,6 +282,11 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               });
             },
 
+            onApprovalRequired: (approvalReq) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              setPendingApproval(approvalReq);
+            },
+
             onError: (errorMsg) => {
               if (streamSeqRef.current !== streamSeq) return;
               isStreamingRef.current = false;
@@ -369,6 +375,8 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
     autoContinueCountRef.current = 0;
   }, []);
 
+  const clearPendingApproval = useCallback(() => setPendingApproval(null), []);
+
   return {
     startGeneration,
     abortGeneration,
@@ -378,5 +386,7 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
     abortControllerRef,
     autoContinueCountRef,
     fetchSystemPrompt,
+    pendingApproval,
+    clearPendingApproval,
   };
 }

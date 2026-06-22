@@ -254,6 +254,47 @@ pub(crate) fn execute_single_tool(
                 if let Some(warning) = detect_destructive_command(cmd) {
                     eprintln!("[SECURITY] {}: {}", warning, &cmd[..cmd.len().min(100)]);
                     llama_chat_db::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
+
+                    // If remote access is active, require human approval before executing.
+                    if let Some(token) = db.get_remote_access_token() {
+                        if !token.is_empty() {
+                            let approval_id = uuid::Uuid::new_v4().to_string();
+                            let args_json = args.to_string();
+                            if db.create_pending_approval(&approval_id, conversation_id, "execute_command", &args_json, warning).is_ok() {
+                                llama_chat_db::event_log::log_event(conversation_id, "approval_requested", &format!("id={approval_id} cmd={}", &cmd[..cmd.len().min(80)]));
+                                if let Some(ref sender) = token_sender {
+                                    let _ = sender.send(TokenData {
+                                        approval_required: Some(ApprovalRequest {
+                                            id: approval_id.clone(),
+                                            tool: "execute_command".to_string(),
+                                            args: args.clone(),
+                                            reason: warning.to_string(),
+                                        }),
+                                        ..Default::default()
+                                    });
+                                }
+                                // Poll for decision (max 120 seconds)
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+                                let approved = loop {
+                                    if std::time::Instant::now() >= deadline {
+                                        let _ = db.resolve_pending_approval(&approval_id, "timeout");
+                                        break false;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                    match db.get_pending_approval_status(&approval_id).as_deref() {
+                                        Some("approved") => break true,
+                                        Some("rejected") | Some("timeout") => break false,
+                                        _ => {}
+                                    }
+                                };
+                                if !approved {
+                                    llama_chat_db::event_log::log_event(conversation_id, "approval_rejected", &format!("id={approval_id}"));
+                                    return (format!("⛔ Command blocked: approval was not granted for `{}`.", &cmd[..cmd.len().min(120)]), Vec::new(), 0);
+                                }
+                                llama_chat_db::event_log::log_event(conversation_id, "approval_granted", &format!("id={approval_id}"));
+                            }
+                        }
+                    }
                 }
 
                 let is_background = args.get("background").map(|v| {

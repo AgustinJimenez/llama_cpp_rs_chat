@@ -70,6 +70,8 @@ export function useChat() {
     isStreamingRef,
     abortControllerRef,
     autoContinueCountRef,
+    pendingApproval,
+    clearPendingApproval,
   } = useGenerationStream({
     setMessages,
     setIsLoading,
@@ -764,5 +766,7 @@ export function useChat() {
     cancelQueuedMessage,
     currentConversationWorkerId,
     setCurrentConversationWorkerId,
+    pendingApproval,
+    clearPendingApproval,
   };
 }

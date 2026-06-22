@@ -24,6 +24,13 @@ export interface TimingInfo {
   costUsd?: number;
 }
 
+export interface ApprovalRequest {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  reason: string;
+}
+
 export interface StreamingCallbacks {
   onToken: (
     token: string,
@@ -42,6 +49,7 @@ export interface StreamingCallbacks {
   onError: (error: string) => void;
   onStatus?: (message: string) => void;
   onToolTiming?: (name: string, durationMs: number) => void;
+  onApprovalRequired?: (request: ApprovalRequest) => void;
 }
 
 export interface ChatTransport {
@@ -93,6 +101,7 @@ function handleStreamMessage(
     onError: (error: string) => void;
     onStatus?: (message: string) => void;
     onToolTiming?: (name: string, durationMs: number) => void;
+    onApprovalRequired?: (request: ApprovalRequest) => void;
   },
   settle: (error?: Error) => void,
   markAborted: () => void,
@@ -155,6 +164,16 @@ function handleStreamMessage(
       return;
     }
 
+    if (message.type === 'approval_required') {
+      callbacks.onApprovalRequired?.({
+        id: message.id as string,
+        tool: message.tool as string,
+        args: message.args as Record<string, unknown>,
+        reason: message.reason as string,
+      });
+      return;
+    }
+
     if (message.type === 'abort') {
       markAborted();
     }
@@ -171,7 +190,7 @@ function handleStreamMessage(
 
 function streamViaWebSocket(
   request: ChatRequest,
-  { onToken, onComplete, onError, onStatus, onToolTiming }: StreamingCallbacks,
+  { onToken, onComplete, onError, onStatus, onToolTiming, onApprovalRequired }: StreamingCallbacks,
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const safeOnToken = onToken ?? (() => {});
@@ -266,6 +285,7 @@ function streamViaWebSocket(
             onError: safeOnError,
             onStatus,
             onToolTiming,
+            onApprovalRequired,
           },
           settle,
           markAborted,

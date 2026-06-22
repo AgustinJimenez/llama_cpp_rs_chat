@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode, type MutableRefObject } from 'react';
 
+import { ApprovalModal } from '../components/molecules/ApprovalModal';
 import { useChat } from '../hooks/useChat';
 import type { Message } from '../types';
 import type { TimingInfo } from '../utils/chatTransport';
@@ -61,7 +62,18 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     ],
   );
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  return (
+    <ChatContext.Provider value={value}>
+      {children}
+      {!!chat.pendingApproval && (
+        <ApprovalModal
+          request={chat.pendingApproval}
+          // eslint-disable-next-line react/jsx-handler-names -- clearPendingApproval is a stable settle handler, not an event
+          onSettled={chat.clearPendingApproval}
+        />
+      )}
+    </ChatContext.Provider>
+  );
 };
 
 // eslint-disable-next-line react-refresh/only-export-components

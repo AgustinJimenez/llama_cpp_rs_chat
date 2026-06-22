@@ -544,5 +544,13 @@
     "upnpEnable": "Enable via UPnP",
     "upnpDisable": "Disable UPnP",
     "upnpActive": "UPnP active — public URL: {{url}}"
+  },
+  "approval": {
+    "title": "Approval required",
+    "toolLabel": "Tool",
+    "reject": "Reject",
+    "rejecting": "Rejecting…",
+    "approve": "Approve",
+    "approving": "Approving…"
   }
 }
