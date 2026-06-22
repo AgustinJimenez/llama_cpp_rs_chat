@@ -38,6 +38,7 @@
     "tauri:build:metal": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features metal,vision",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "ci:check": "tsc --noEmit && eslint --max-warnings 0 \"src/**/*.{ts,tsx}\" && react-doctor . --lint && cargo check --workspace --no-default-features && cargo clippy --workspace --no-default-features -- -D warnings && cargo test --workspace --no-default-features",
     "lint": "eslint --max-warnings 0 \"src/**/*.{ts,tsx}\" && react-doctor . --lint",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
