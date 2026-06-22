@@ -160,9 +160,9 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
       try {
         const result = await activateAgentCmd(id);
         setAgentStatuses((prev) => ({ ...prev, [id]: result }));
-      } catch (err) {
+      } catch (error) {
         setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
-        throw err;
+        throw error;
       } finally {
         clearInterval(pollInterval);
         setActivatingAgentId((prev) => (prev === id ? null : prev));

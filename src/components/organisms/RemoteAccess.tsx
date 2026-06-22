@@ -86,11 +86,14 @@ export const RemoteAccess = (): JSX.Element => {
   const copyLabel = tokenCopied ? t('common.copied') : t('common.copy');
   const upnpBtnLabel = upnpLoading ? t('common.loading') : t('remoteAccess.upnpEnable');
   const upnpErrorMsg = upnpResult?.error ?? t('remoteAccess.upnpFailed');
+  const showUpnpDisable = Boolean(upnpResult?.success);
+  const showUpnpError = upnpResult !== null && upnpResult !== undefined && !upnpResult.success;
+  const showUpnpSuccess = Boolean(upnpResult?.public_url);
 
   const qrSection = qrUrl ? (
     <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-white p-4">
       <QRCodeSVG value={qrUrl} size={180} />
-      {displayUrl && <p className="break-all text-center font-mono text-xs text-foreground">{displayUrl}</p>}
+      {!!displayUrl && <p className="break-all text-center font-mono text-xs text-foreground">{displayUrl}</p>}
     </div>
   ) : (
     <div className="rounded-lg border border-border bg-muted/40 p-4 text-center text-sm text-muted-foreground">
@@ -149,7 +152,7 @@ export const RemoteAccess = (): JSX.Element => {
           >
             {upnpBtnLabel}
           </button>
-          {upnpResult?.success && (
+          {!!showUpnpDisable && (
             <button
               type="button"
               onClick={handleDisableUpnp}
@@ -160,11 +163,11 @@ export const RemoteAccess = (): JSX.Element => {
             </button>
           )}
         </div>
-        {upnpResult && !upnpResult.success && (
+        {!!showUpnpError && (
           <p className="mt-1 text-xs text-red-400">{upnpErrorMsg}</p>
         )}
-        {upnpResult?.public_url && (
-          <p className="mt-1 text-xs text-green-400">{t('remoteAccess.upnpActive', { url: upnpResult.public_url })}</p>
+        {!!showUpnpSuccess && (
+          <p className="mt-1 text-xs text-green-400">{t('remoteAccess.upnpActive', { url: upnpResult?.public_url })}</p>
         )}
       </div>
     </div>

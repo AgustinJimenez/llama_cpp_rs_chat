@@ -125,6 +125,7 @@ fn payload_to_record(p: AgentPayload) -> llama_chat_db::agents::AgentRecord {
 }
 
 /// Apply payload fields onto an existing AgentRecord (for update).
+#[allow(clippy::cognitive_complexity)]
 fn apply_payload(record: &mut llama_chat_db::agents::AgentRecord, p: AgentPayload) {
     record.name = p.name;
     record.provider_id = p.provider_id.unwrap_or_else(|| record.provider_id.clone());

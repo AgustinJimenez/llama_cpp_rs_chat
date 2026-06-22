@@ -596,8 +596,8 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
         toast.success('Agent created');
       }
       setView('list');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       toast.error(editingAgent ? 'Failed to update agent' : 'Failed to create agent');
       recordAppError({
         level: 'error',
@@ -619,8 +619,8 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     try {
       await deleteAgent(id);
       setConfirmDeleteId(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       toast.error('Failed to delete agent');
       recordAppError({
         level: 'error',

@@ -48,7 +48,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
           : 'text-muted-foreground hover:text-foreground'
       }`}
     >
-      Debug
+      {t('rightSidebar.tabDebug')}
     </button>
   );
 
@@ -78,7 +78,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              System
+              {t('rightSidebar.tabSystem')}
             </button>
             {debugTabButton}
           </div>

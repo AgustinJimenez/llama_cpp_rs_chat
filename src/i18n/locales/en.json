@@ -476,7 +476,9 @@
   "rightSidebar": {
     "systemMonitor": "System Monitor",
     "closeSidebar": "Close sidebar",
-    "closeMonitorAria": "Close system monitor"
+    "closeMonitorAria": "Close system monitor",
+    "tabSystem": "System",
+    "tabDebug": "Debug"
   },
   "memoryVisualization": {
     "gpuMemory": "GPU Memory (VRAM)",
