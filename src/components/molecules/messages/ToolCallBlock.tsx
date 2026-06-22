@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const TOOL_SUMMARY_MAX_LENGTH = 80;
 const DEACTIVATE_DEBOUNCE_MS = 2000;
@@ -230,6 +231,7 @@ const ExecutingHeader: React.FC<{
   isExpanded: boolean;
   onToggle: () => void;
 }> = ({ name, summary, elapsed, isExpanded, onToggle }) => {
+  const { t } = useTranslation();
   const elapsedStr = formatElapsed(elapsed);
   const isDesktop = DESKTOP_TOOLS.has(name);
   const execChevron = isExpanded ? (
@@ -255,10 +257,10 @@ const ExecutingHeader: React.FC<{
             fetch('/api/desktop/abort', { method: 'POST' }).catch(() => {});
           }}
           className="flex flex-shrink-0 items-center gap-1 rounded bg-destructive/20 px-2 py-0.5 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/40"
-          title="Abort desktop automation"
+          title={t('toolCallBlock.abortDesktop')}
         >
           <Square className="size-2.5 fill-current" />
-          Abort
+          {t('toolCallBlock.abort')}
         </button>
       )}
     </div>
@@ -382,6 +384,7 @@ const CompletedOutput: React.FC<{
   language?: string | null;
   isStreaming?: boolean;
 }> = ({ output, isExpanded, onToggle, language, isStreaming }) => {
+  const { t } = useTranslation();
   const outputChevron = isExpanded ? (
     <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
@@ -393,7 +396,7 @@ const CompletedOutput: React.FC<{
         onClick={onToggle}
         className="flex w-full items-center gap-2 border-t border-border bg-muted px-3 py-1.5 text-left transition-colors hover:bg-accent"
       >
-        <span className="text-xs font-medium text-foreground">Output</span>
+        <span className="text-xs font-medium text-foreground">{t('toolCallBlock.output')}</span>
         <span className="flex-1 truncate text-xs text-foreground">
           {(() => {
             if (isStreaming) return 'Streaming...';

@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '../atoms/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../atoms/dialog';
@@ -68,7 +69,7 @@ function formatNumber(n: number): string {
 }
 
 function formatFileCount(count: number): string {
-  if (count === 0) return 'No GGUF files — needs conversion';
+  if (count === 0) return 'No GGUF files \u2014 needs conversion';
   return `${count} file${count !== 1 ? 's' : ''}`;
 }
 
@@ -104,7 +105,7 @@ function extractQuant(filename: string): string | null {
   return null;
 }
 
-/** Sort key for a quant string — lower = smaller/faster model */
+/** Sort key for a quant string \u2014 lower = smaller/faster model */
 /* eslint-disable @typescript-eslint/no-magic-numbers */
 function quantSortKey(quant: string | null): number {
   if (!quant) return 999;
@@ -142,6 +143,7 @@ const FileRow = ({
   persistedDone?: boolean;
   pendingRecord?: HubDownloadRecord | null;
 }) => {
+  const { t } = useTranslation();
   const quant = extractQuant(file.name);
   const type = fileType(file.name);
   const shortName = file.name.split('/').pop() ?? file.name;
@@ -156,14 +158,14 @@ const FileRow = ({
       ? Math.round(((progress.bytes ?? 0) / progress.total) * 100)
       : 0;
 
-  let downloadTitle = 'Download to local disk';
-  let downloadAriaLabel = 'Download file';
+  let downloadTitle = t('hubExplorer.downloadToLocal');
+  let downloadAriaLabel = t('hubExplorer.ariaDownload');
   if (isPaused) {
-    downloadTitle = 'Resume download';
-    downloadAriaLabel = 'Resume download';
+    downloadTitle = t('hubExplorer.resumeDownload');
+    downloadAriaLabel = t('hubExplorer.ariaResume');
   } else if (isDownloading) {
-    downloadTitle = 'Downloading...';
-    downloadAriaLabel = 'Downloading';
+    downloadTitle = t('hubExplorer.downloadingTitle');
+    downloadAriaLabel = t('hubExplorer.ariaDownloading');
   }
 
   return (
@@ -206,16 +208,23 @@ const FileRow = ({
           <span className="text-xs text-muted-foreground">{formatSize(file.size)}</span>
           {!!isDownloading && (
             <span className="text-xs font-medium text-primary">
-              {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
+              {t('hubExplorer.downloadSpeed', {
+                pct,
+                speed: formatSize((progress.speed_kbps ?? 0) * 1024),
+              })}
             </span>
           )}
           {!!isPaused && (
             <span className="text-xs font-medium text-yellow-600">
-              Paused &middot; {formatSize(pendingRecord.bytes_downloaded)} /{' '}
+              {t('hubExplorer.paused')} &middot; {formatSize(pendingRecord.bytes_downloaded)} /{' '}
               {formatSize(pendingRecord.file_size)}
             </span>
           )}
-          {!!isDone && <span className="text-xs font-medium text-green-500">Downloaded</span>}
+          {!!isDone && (
+            <span className="text-xs font-medium text-green-500">
+              {t('hubExplorer.downloaded')}
+            </span>
+          )}
           {!!isError && (
             <span className="max-w-[200px] truncate text-xs font-medium text-destructive">
               {progress.message}
@@ -254,6 +263,7 @@ const ModelCard = ({
   downloadedSet: Set<string>;
   pendingDownloads: Map<string, HubDownloadRecord>;
 }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [detailedFiles, setDetailedFiles] = useState<HubFile[] | null>(null);
   const [loadingFiles, setLoadingFiles] = useState(false);
@@ -304,7 +314,7 @@ const ModelCard = ({
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             className="text-muted-foreground hover:text-foreground"
-            aria-label="Open on HuggingFace"
+            aria-label={t('hubExplorer.openHuggingFace')}
           >
             <ExternalLink className="size-4" />
           </a>
@@ -317,7 +327,7 @@ const ModelCard = ({
         <div className="mt-2 space-y-0.5 border-t pt-2">
           {!!loadingFiles && (
             <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" /> Loading file details…
+              <Loader2 className="size-3 animate-spin" /> {t('hubExplorer.loadingFileDetails')}
             </div>
           )}
           {!loadingFiles &&
@@ -326,9 +336,9 @@ const ModelCard = ({
                 const ta = fileType(a.name);
                 const tb = fileType(b.name);
                 // mmproj/imatrix after models
-                const typeOrder = (t: string) => {
-                  if (t === 'model') return 0;
-                  if (t === 'mmproj') return 1;
+                const typeOrder = (ft: string) => {
+                  if (ft === 'model') return 0;
+                  if (ft === 'mmproj') return 1;
                   return 2;
                 };
                 if (ta !== tb) return typeOrder(ta) - typeOrder(tb);
@@ -359,7 +369,7 @@ const ModelCard = ({
   );
 };
 
-// ─── Downloads Tab ──────────────────────────────────────────────────
+// \u2014\u2014 Downloads Tab \u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014
 
 const DownloadRow = ({
   record,
@@ -376,6 +386,7 @@ const DownloadRow = ({
   onPause: (key: string) => void;
   onCancel: (key: string) => void;
 }) => {
+  const { t } = useTranslation();
   const shortName = record.filename.split('/').pop() ?? record.filename;
   const quant = extractQuant(record.filename);
   const isCompleted = record.status === 'completed';
@@ -424,13 +435,16 @@ const DownloadRow = ({
             if (isDownloading) {
               return (
                 <span className="text-xs font-medium text-primary">
-                  {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
+                  {t('hubExplorer.downloadSpeed', {
+                    pct,
+                    speed: formatSize((progress.speed_kbps ?? 0) * 1024),
+                  })}
                 </span>
               );
             }
             return (
               <span className="text-xs font-medium text-yellow-600">
-                Paused &middot; {formatSize(record.bytes_downloaded)} /{' '}
+                {t('hubExplorer.paused')} &middot; {formatSize(record.bytes_downloaded)} /{' '}
                 {formatSize(record.file_size)}
               </span>
             );
@@ -452,8 +466,8 @@ const DownloadRow = ({
                 type="button"
                 onClick={() => onLoad(record)}
                 className="text-muted-foreground hover:text-foreground"
-                title="Load this model"
-                aria-label="Load this model"
+                title={t('hubExplorer.loadModel')}
+                aria-label={t('hubExplorer.loadModel')}
               >
                 <Play className="size-4" />
               </button>
@@ -465,8 +479,8 @@ const DownloadRow = ({
                 type="button"
                 onClick={() => onPause(`${record.model_id}/${record.filename}`)}
                 className="text-muted-foreground hover:text-yellow-500"
-                title="Pause download"
-                aria-label="Pause download"
+                title={t('hubExplorer.pauseDownload')}
+                aria-label={t('hubExplorer.pauseDownload')}
               >
                 <Pause className="size-4" />
               </button>
@@ -477,8 +491,8 @@ const DownloadRow = ({
               type="button"
               onClick={() => onResume(record)}
               className="text-muted-foreground hover:text-foreground"
-              title="Resume download"
-              aria-label="Resume download"
+              title={t('hubExplorer.resumeDownload')}
+              aria-label={t('hubExplorer.ariaResume')}
             >
               <ArrowDownToLine className="size-4" />
             </button>
@@ -488,8 +502,8 @@ const DownloadRow = ({
           type="button"
           onClick={() => onCancel(`${record.model_id}/${record.filename}`)}
           className="text-muted-foreground hover:text-destructive"
-          title="Cancel and delete"
-          aria-label="Cancel and delete download"
+          title={t('hubExplorer.cancelDelete')}
+          aria-label={t('hubExplorer.cancelDeleteAria')}
         >
           <X className="size-4" />
         </button>
@@ -515,6 +529,7 @@ const DownloadsTab = ({
   onPause: (key: string) => void;
   onCancel: (key: string) => void;
 }) => {
+  const { t } = useTranslation();
   const pendingList = Array.from(pendingDownloads.values());
   const completedList = Array.from(completedDownloads.values());
   const isEmpty = pendingList.length === 0 && completedList.length === 0;
@@ -523,8 +538,8 @@ const DownloadsTab = ({
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
         <ArrowDownToLine className="mx-auto mb-3 size-8 opacity-40" />
-        <p>No downloads yet</p>
-        <p className="mt-1 text-xs">Search and download models from the Explore tab</p>
+        <p>{t('hubExplorer.noDownloads')}</p>
+        <p className="mt-1 text-xs">{t('hubExplorer.noDownloadsHint')}</p>
       </div>
     );
   }
@@ -534,7 +549,7 @@ const DownloadsTab = ({
       {pendingList.length > 0 && (
         <div>
           <div className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Pending ({pendingList.length})
+            {t('hubExplorer.pendingCount', { count: pendingList.length })}
           </div>
           <div className="space-y-0.5">
             {pendingList.map((r) => {
@@ -558,7 +573,7 @@ const DownloadsTab = ({
       {completedList.length > 0 && (
         <div>
           <div className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Completed ({completedList.length})
+            {t('hubExplorer.completedCount', { count: completedList.length })}
           </div>
           <div className="space-y-0.5">
             {completedList.map((r) => {
@@ -582,10 +597,11 @@ const DownloadsTab = ({
   );
 };
 
-// ─── Main HubExplorer ───────────────────────────────────────────────
+// \u2014\u2014 Main HubExplorer \u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014
 
 // eslint-disable-next-line max-lines-per-function, complexity
 export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
   const [modelsDirectory, setModelsDirectory] = useState<string | null>(null);
@@ -694,11 +710,11 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="flex max-h-[80vh] max-w-2xl flex-col">
         <DialogHeader>
-          <DialogTitle>Explore GGUF Models</DialogTitle>
+          <DialogTitle>{t('hubExplorer.title')}</DialogTitle>
         </DialogHeader>
 
         {/* Tab bar */}
-        <div className="flex border-b" role="tablist" aria-label="Hub sections">
+        <div className="flex border-b" role="tablist" aria-label={t('hubExplorer.hubAriaLabel')}>
           <button
             type="button"
             onClick={() => setActiveTab('explore')}
@@ -710,7 +726,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
             role="tab"
             aria-selected={activeTab === 'explore'}
           >
-            Explore
+            {t('hubExplorer.tabExplore')}
           </button>
           <button
             type="button"
@@ -723,7 +739,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
             role="tab"
             aria-selected={activeTab === 'downloads'}
           >
-            Downloads
+            {t('hubExplorer.tabDownloads')}
             {totalDownloads > 0 && (
               <span
                 className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
@@ -756,14 +772,14 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 <span className="truncate font-mono text-xs">{modelsDirectory}</span>
               )}
               {!modelsDirectory && (
-                <span className="text-foreground/60">Click to set models download directory…</span>
+                <span className="text-foreground/60">{t('hubExplorer.setDirectoryCta')}</span>
               )}
             </button>
 
             {!modelsDirectory && (
               <div className="py-12 text-center text-sm text-muted-foreground">
                 <FolderOpen className="mx-auto mb-3 size-8 opacity-40" />
-                <p>Set a download directory to browse and download models.</p>
+                <p>{t('hubExplorer.setDirectoryPrompt')}</p>
               </div>
             )}
             {!!modelsDirectory && (
@@ -775,7 +791,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                       value={query}
                       onChange={handleChange}
                       onKeyDown={handleKeyDown}
-                      placeholder="Search models or paste repo ID (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)..."
+                      placeholder={t('hubExplorer.searchPlaceholder')}
                       className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       // eslint-disable-next-line jsx-a11y/no-autofocus
                       autoFocus
@@ -790,7 +806,9 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                     >
                       {SORT_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
-                          {opt.label}
+                          {t(
+                            `hubExplorer.sort${opt.value.charAt(0).toUpperCase() + opt.value.slice(1)}`,
+                          )}
                         </option>
                       ))}
                     </select>
@@ -804,7 +822,9 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                   {!!isLoading && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/60">
                       <Loader2 className="mr-2 size-5 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Searching…</span>
+                      <span className="text-sm text-muted-foreground">
+                        {t('hubExplorer.searching')}
+                      </span>
                     </div>
                   )}
 
@@ -816,8 +836,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
 
                   {!error && models.length === 0 && !isLoading && (
                     <div className="py-8 text-center text-sm text-muted-foreground">
-                      {!!query && <>No GGUF models found for &ldquo;{query}&rdquo;</>}
-                      {!query && 'No models found'}
+                      {!!query && <>{t('hubExplorer.noGgufModels', { query })}</>}
+                      {!query && t('hubExplorer.noModels')}
                     </div>
                   )}
 
@@ -854,7 +874,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
 
         <div className="flex justify-end border-t pt-2">
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('hubExplorer.close')}
           </Button>
         </div>
       </DialogContent>

@@ -9,6 +9,7 @@
 extern crate llama_chat_types;
 
 pub mod agent_heartbeat_runner;
+pub mod remote;
 pub mod keychain;
 pub mod native_tools_bridge;
 pub mod request;

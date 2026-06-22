@@ -197,6 +197,7 @@ export const App = () => {
               <>
                 {icon}
                 {message}
+                {/* eslint-disable i18next/no-literal-string */}
                 {t.type === 'error' && (
                   <button
                     onClick={() => toast.dismiss(t.id)}
@@ -206,6 +207,7 @@ export const App = () => {
                     ✕
                   </button>
                 )}
+                {/* eslint-enable i18next/no-literal-string */}
               </>
             )}
           </ToastBar>
@@ -319,6 +321,7 @@ const MainContent = ({
       className="ml-0 flex-1 md:ml-[var(--sidebar-w)]"
       style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
     >
+      {/* eslint-disable-next-line i18next/no-literal-string */}
       <h1 className="sr-only">LLaMA Chat</h1>
       <div className="flex h-full flex-col">
         <ConnectionBanner />

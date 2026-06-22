@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../atoms/select';
 
@@ -85,23 +86,24 @@ const SamplerGroup = ({
   config: SamplerConfig;
   onConfigChange: ConfigChanger;
 }) => {
+  const { t } = useTranslation();
   const sampler = config.sampler_type as SamplerType;
   const showAdvanced = sampler !== 'Mirostat' && sampler !== 'Greedy';
   return (
-    <ParamGroup title="Sampling">
+    <ParamGroup title={t('modelConfig.samplingGroup')}>
       <div className="flex items-center gap-1.5">
         <label
           htmlFor="sampler-type-select"
           className="whitespace-nowrap text-xs text-muted-foreground"
         >
-          Sampler
+          {t('modelConfig.samplerLabel')}
         </label>
         <Select
           value={config.sampler_type}
           onValueChange={(value) => onConfigChange('sampler_type', value)}
         >
           <SelectTrigger id="sampler-type-select" className="h-6 w-36 text-xs">
-            <SelectValue placeholder="Select type" />
+            <SelectValue placeholder={t('modelConfig.selectType')} />
           </SelectTrigger>
           <SelectContent>
             {SAMPLER_OPTIONS.map((option) => (
@@ -114,7 +116,7 @@ const SamplerGroup = ({
       </div>
       {USES_TEMPERATURE.includes(sampler) && (
         <NumericParam
-          label="Temp"
+          label={t('modelConfig.temperature')}
           value={config.temperature}
           format={(v) => v.toFixed(2)}
           onChange={(v) => onConfigChange('temperature', v)}
@@ -125,7 +127,7 @@ const SamplerGroup = ({
       )}
       {USES_TOP_P.includes(sampler) && (
         <NumericParam
-          label="Top P"
+          label={t('modelConfig.topP')}
           value={config.top_p}
           format={(v) => v.toFixed(2)}
           onChange={(v) => onConfigChange('top_p', v)}
@@ -136,7 +138,7 @@ const SamplerGroup = ({
       )}
       {USES_TOP_K.includes(sampler) && (
         <NumericParam
-          label="Top K"
+          label={t('modelConfig.topK')}
           value={config.top_k}
           onChange={(v) => onConfigChange('top_k', v)}
           min={0}
@@ -147,7 +149,7 @@ const SamplerGroup = ({
       )}
       {USES_MIN_P.includes(sampler) && (
         <NumericParam
-          label="Min P"
+          label={t('modelConfig.minP')}
           value={config.min_p}
           format={(v) => v.toFixed(2)}
           onChange={(v) => onConfigChange('min_p', v)}
@@ -158,7 +160,7 @@ const SamplerGroup = ({
       )}
       {USES_TYPICAL_P.includes(sampler) && (
         <NumericParam
-          label="Typical P"
+          label={t('modelConfig.typicalP')}
           value={config.typical_p ?? 1.0}
           format={(v) => v.toFixed(2)}
           onChange={(v) => onConfigChange('typical_p', v)}
@@ -169,7 +171,7 @@ const SamplerGroup = ({
       )}
       {!!showAdvanced && (
         <NumericParam
-          label="Top-N σ"
+          label={t('modelConfig.topNSigma')}
           value={config.top_n_sigma ?? -1.0}
           format={(v) => (v <= 0 ? '-1' : v.toFixed(1))}
           onChange={(v) => onConfigChange('top_n_sigma', v)}
@@ -180,7 +182,7 @@ const SamplerGroup = ({
       )}
       {sampler !== 'Mirostat' && (
         <NumericParam
-          label="Repeat"
+          label={t('modelConfig.repeatPenalty')}
           value={config.repeat_penalty}
           format={(v) => v.toFixed(2)}
           onChange={(v) => onConfigChange('repeat_penalty', v)}
@@ -192,7 +194,7 @@ const SamplerGroup = ({
       {USES_MIROSTAT.includes(sampler) && (
         <>
           <NumericParam
-            label="Tau"
+            label={t('modelConfig.mirostatTau')}
             value={config.mirostat_tau}
             format={(v) => v.toFixed(1)}
             onChange={(v) => onConfigChange('mirostat_tau', v)}
@@ -201,7 +203,7 @@ const SamplerGroup = ({
             step={0.1}
           />
           <NumericParam
-            label="Eta"
+            label={t('modelConfig.mirostatEta')}
             value={config.mirostat_eta}
             format={(v) => v.toFixed(2)}
             onChange={(v) => onConfigChange('mirostat_eta', v)}
@@ -212,7 +214,7 @@ const SamplerGroup = ({
         </>
       )}
       <NumericParam
-        label="Seed"
+        label={t('modelConfig.seed')}
         value={config.seed ?? -1}
         format={(v) => (v < 0 ? '-1' : String(v))}
         onChange={(v) => onConfigChange('seed', v)}
@@ -231,37 +233,40 @@ const PenaltyGroup = ({
 }: {
   config: SamplerConfig;
   onConfigChange: ConfigChanger;
-}) => (
-  <ParamGroup title="Penalties">
-    <NumericParam
-      label="Freq"
-      value={config.frequency_penalty ?? 0}
-      format={(v) => v.toFixed(2)}
-      onChange={(v) => onConfigChange('frequency_penalty', v)}
-      min={0}
-      max={2}
-      step={0.05}
-    />
-    <NumericParam
-      label="Presence"
-      value={config.presence_penalty ?? 0}
-      format={(v) => v.toFixed(2)}
-      onChange={(v) => onConfigChange('presence_penalty', v)}
-      min={0}
-      max={2}
-      step={0.05}
-    />
-    <NumericParam
-      label="Window"
-      value={config.penalty_last_n ?? DEFAULT_PENALTY_WINDOW}
-      onChange={(v) => onConfigChange('penalty_last_n', v)}
-      min={0}
-      max={256}
-      step={8}
-      integer
-    />
-  </ParamGroup>
-);
+}) => {
+  const { t } = useTranslation();
+  return (
+    <ParamGroup title={t('modelConfig.penaltiesGroup')}>
+      <NumericParam
+        label={t('modelConfig.frequencyPenalty')}
+        value={config.frequency_penalty ?? 0}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => onConfigChange('frequency_penalty', v)}
+        min={0}
+        max={2}
+        step={0.05}
+      />
+      <NumericParam
+        label={t('modelConfig.presencePenalty')}
+        value={config.presence_penalty ?? 0}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => onConfigChange('presence_penalty', v)}
+        min={0}
+        max={2}
+        step={0.05}
+      />
+      <NumericParam
+        label={t('modelConfig.penaltyWindow')}
+        value={config.penalty_last_n ?? DEFAULT_PENALTY_WINDOW}
+        onChange={(v) => onConfigChange('penalty_last_n', v)}
+        min={0}
+        max={256}
+        step={8}
+        integer
+      />
+    </ParamGroup>
+  );
+};
 
 const DryGroup = ({
   config,
@@ -270,12 +275,13 @@ const DryGroup = ({
   config: SamplerConfig;
   onConfigChange: ConfigChanger;
 }) => {
+  const { t } = useTranslation();
   const dryActive = (config.dry_multiplier ?? 0) > 0;
   const dryGroupClass = dryActive ? '' : 'opacity-40 pointer-events-none';
   return (
-    <ParamGroup title="DRY Anti-Repetition">
+    <ParamGroup title={t('modelConfig.dryGroup')}>
       <NumericParam
-        label="Multiplier"
+        label={t('modelConfig.dryMultiplier')}
         value={config.dry_multiplier ?? 0}
         format={(v) => v.toFixed(1)}
         onChange={(v) => onConfigChange('dry_multiplier', v)}
@@ -286,7 +292,7 @@ const DryGroup = ({
       <div className={dryGroupClass}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <NumericParam
-            label="Base"
+            label={t('modelConfig.dryBase')}
             value={config.dry_base ?? DEFAULT_DRY_BASE}
             format={(v) => v.toFixed(2)}
             onChange={(v) => onConfigChange('dry_base', v)}
@@ -295,7 +301,7 @@ const DryGroup = ({
             step={0.05}
           />
           <NumericParam
-            label="Min Len"
+            label={t('modelConfig.dryMinLen')}
             value={config.dry_allowed_length ?? 2}
             onChange={(v) => onConfigChange('dry_allowed_length', v)}
             min={1}
@@ -304,7 +310,7 @@ const DryGroup = ({
             integer
           />
           <NumericParam
-            label="Window"
+            label={t('modelConfig.dryWindow')}
             value={config.dry_penalty_last_n ?? -1}
             format={(v) => (v < 0 ? '-1' : String(v))}
             onChange={(v) => onConfigChange('dry_penalty_last_n', v)}

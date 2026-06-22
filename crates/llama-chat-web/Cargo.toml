@@ -64,6 +64,11 @@ html2text = "0.12"
 # OS keychain for secure API key storage (Windows Credential Manager / macOS Keychain / Linux Secret Service)
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 
+# Remote access: LAN discovery, UPnP port mapping, STUN public IP
+mdns-sd = "0.13"
+igd-next = { version = "0.17", features = ["aio_tokio"] }
+stunclient = "0.1"
+
 [features]
 default = []
 mock = []

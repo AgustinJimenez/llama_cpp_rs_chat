@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { ProviderConfigSection } from '@/components/molecules/ProviderConfigSection';
 import { isTauriEnv } from '@/utils/tauri';
@@ -91,6 +92,7 @@ export const ProviderSelector = ({
   onSelectRemote,
   currentProvider,
 }: ProviderSelectorProps) => {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loadingCli, setLoadingCli] = useState(false);
   const [refreshingCli, setRefreshingCli] = useState(false);
@@ -280,7 +282,7 @@ export const ProviderSelector = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h3 className="text-base font-medium text-foreground">Select Provider</h3>
+          <h3 className="text-base font-medium text-foreground">{t('provider.title')}</h3>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -290,7 +292,7 @@ export const ProviderSelector = ({
         </div>
 
         <div className="space-y-3 overflow-y-auto p-5">
-          {/* ── Local Model ── */}
+          {/* \u2500\u2500 Local Model \u2500\u2500 */}
           <button
             onClick={onSelectLocal}
             className={`w-full rounded-lg border p-4 text-left transition-colors ${
@@ -303,18 +305,18 @@ export const ProviderSelector = ({
               <Cpu className="mt-0.5 size-5 flex-shrink-0 text-emerald-400" />
               <div>
                 <div className="font-medium text-foreground">
-                  {localProvider?.name || 'Local Model (llama.cpp)'}
+                  {localProvider?.name || t('provider.localModelName')}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {localProvider?.description || 'Run models locally on your GPU'}
+                  {localProvider?.description || t('provider.localModelDescription')}
                 </div>
               </div>
             </div>
           </button>
 
-          {/* ── CLI Providers ── */}
+          {/* \u2500\u2500 CLI Providers \u2500\u2500 */}
           <SectionHeader
-            label="CLI Providers"
+            label={t('provider.cliProviders')}
             icon={<Cloud className="size-3.5 text-cyan-400" />}
             isOpen={cliSectionOpen}
             onToggle={() => setCliSectionOpen((v) => !v)}
@@ -326,11 +328,11 @@ export const ProviderSelector = ({
                 <button
                   onClick={refreshCli}
                   disabled={refreshingCli || loadingCli}
-                  title="Re-check CLI availability"
+                  title={t('provider.refreshCli')}
                   className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
                 >
                   <RefreshCw className={`size-3 ${refreshingCli ? 'animate-spin' : ''}`} />
-                  Refresh
+                  {t('common.refresh')}
                 </button>
               </div>
               {!!loadingCli &&
@@ -352,11 +354,11 @@ export const ProviderSelector = ({
                 cliProviders.map((provider) => {
                   const availabilityBadge = provider.available ? (
                     <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                      connected
+                      {t('provider.connected')}
                     </span>
                   ) : (
                     <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
-                      not detected
+                      {t('provider.notDetected')}
                     </span>
                   );
                   const versionSuffix = provider.version
@@ -417,7 +419,7 @@ export const ProviderSelector = ({
                         >
                           <input
                             type="text"
-                            placeholder="Type model name…"
+                            placeholder={t('provider.customModelPlaceholder')}
                             disabled={!provider.available}
                             value={customModels[provider.id] || ''}
                             onChange={(e) =>
@@ -447,9 +449,9 @@ export const ProviderSelector = ({
             </div>
           )}
 
-          {/* ── OpenAI-Compatible Providers ── */}
+          {/* \u2500\u2500 OpenAI-Compatible Providers \u2500\u2500 */}
           <SectionHeader
-            label="OpenAI-Compatible Providers"
+            label={t('provider.openaiProviders')}
             icon={<Zap className="size-3.5 text-amber-400" />}
             isOpen={openaiSectionOpen}
             onToggle={() => setOpenaiSectionOpen((v) => !v)}
@@ -461,7 +463,7 @@ export const ProviderSelector = ({
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Search providers..."
+                  placeholder={t('provider.searchPlaceholder')}
                   value={providerSearch}
                   onChange={(e) => setProviderSearch(e.target.value)}
                   className="w-full rounded-md border border-border bg-muted py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -476,11 +478,11 @@ export const ProviderSelector = ({
                 const justSaved = savedProvider === provider.id;
                 const apiKeyBadge = provider.available ? (
                   <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                    API key set
+                    {t('provider.apiKeySet')}
                   </span>
                 ) : (
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    no API key
+                    {t('provider.noApiKey')}
                   </span>
                 );
                 const chevronIcon = isExpanded ? (
@@ -491,8 +493,10 @@ export const ProviderSelector = ({
                 let saveIcon = null;
                 if (isSaving) saveIcon = <Loader2 className="size-3 animate-spin" />;
                 else if (justSaved) saveIcon = <Check className="size-3" />;
-                const useTitle = provider.available ? `Use ${provider.name}` : 'Set API key first';
-                const saveLabel = justSaved ? 'Saved' : 'Save';
+                const useTitle = provider.available
+                  ? t('provider.useProviderTitle', { provider: provider.name })
+                  : t('provider.setApiKeyFirst');
+                const saveLabel = justSaved ? t('common.saved') : t('common.save');
 
                 let providerBorderClass = isExpanded ? 'border-border/80' : 'border-border';
                 if (currentProvider === provider.id) {
@@ -555,11 +559,11 @@ export const ProviderSelector = ({
                         <div className="space-y-1">
                           {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                           <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                            API Key
+                            {t('provider.apiKeyLabel')}
                           </label>
                           <input
                             type="password"
-                            placeholder="sk-..."
+                            placeholder={t('provider.apiKeyPlaceholder')}
                             value={input.api_key || ''}
                             onChange={(e) =>
                               setApiKeyInputs((prev) => ({
@@ -573,8 +577,10 @@ export const ProviderSelector = ({
                         <div className="space-y-1">
                           {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                           <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                            Base URL{' '}
-                            <span className="font-normal normal-case">(optional override)</span>
+                            {t('provider.baseUrlLabel')}{' '}
+                            <span className="font-normal normal-case">
+                              {t('provider.baseUrlOptional')}
+                            </span>
                           </label>
                           <input
                             type="text"
@@ -600,7 +606,7 @@ export const ProviderSelector = ({
                         {!!provider.available && (provider.models || []).length > 0 && (
                           <div className="border-t border-border/40 pt-1">
                             <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                              Select Model
+                              {t('provider.selectModel')}
                             </p>
                             <select
                               value={selectedModels[provider.id] || provider.models?.[0] || ''}
@@ -628,7 +634,7 @@ export const ProviderSelector = ({
                             >
                               <input
                                 type="text"
-                                placeholder="Or type a model name..."
+                                placeholder={t('provider.orTypeModelName')}
                                 value={customModels[provider.id] || ''}
                                 onChange={(e) =>
                                   setCustomModels((prev) => ({

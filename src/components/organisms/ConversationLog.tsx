@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const EVENT_POLL_INTERVAL_MS = 3000;
 
@@ -55,6 +56,7 @@ function formatTime(ts: number): string {
 }
 
 export const ConversationLog = () => {
+  const { t } = useTranslation();
   const { currentConversationId } = useChatContext();
   const { isEventLogOpen, toggleEventLog } = useUIContext();
   const [events, setEvents] = useState<ConversationEvent[]>([]);
@@ -91,10 +93,7 @@ export const ConversationLog = () => {
 
   const eventsContent =
     events.length === 0 ? (
-      <p className="italic text-muted-foreground">
-        No events yet. Events appear during generation (stalls, compaction, context limits, Y/N
-        checks).
-      </p>
+      <p className="italic text-muted-foreground">{t('eventLog.emptyState')}</p>
     ) : (
       events.map((ev) => (
         <div key={`${ev.timestamp}-${ev.event_type}`} className="flex items-start gap-2">
@@ -125,7 +124,7 @@ export const ConversationLog = () => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="text-sm font-medium text-foreground">Event Log</h3>
+          <h3 className="text-sm font-medium text-foreground">{t('eventLog.title')}</h3>
           <button
             onClick={toggleEventLog}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

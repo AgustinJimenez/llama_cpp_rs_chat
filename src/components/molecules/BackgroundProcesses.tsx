@@ -1,5 +1,6 @@
 import { Terminal } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { BackgroundProcessesModal } from '../organisms/BackgroundProcessesModal';
 
@@ -21,6 +22,7 @@ async function fetchProcesses(): Promise<BackgroundProcess[]> {
 
 /** Sidebar indicator for background processes. Opens the shared modal on click. */
 export const BackgroundProcesses = () => {
+  const { t } = useTranslation();
   const [aliveCount, setAliveCount] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -45,9 +47,7 @@ export const BackgroundProcesses = () => {
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-green-400 transition-colors hover:bg-green-400/10"
         >
           <Terminal className="size-3 animate-pulse" />
-          <span>
-            {aliveCount} background process{aliveCount !== 1 && 'es'}
-          </span>
+          <span>{t('backgroundProcesses.description', { count: aliveCount })}</span>
         </button>
       </div>
       <BackgroundProcessesModal

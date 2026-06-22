@@ -80,3 +80,7 @@ pub mod agents {
 pub mod openai_compat_server {
     pub use llama_chat_web::routes::openai_compat_server::*;
 }
+#[allow(unused_imports)]
+pub mod remote {
+    pub use llama_chat_web::routes::remote::*;
+}

@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAgentContext } from '../../contexts/AgentContext';
 import { useChatContext } from '../../contexts/ChatContext';
@@ -122,6 +123,7 @@ const AgentRow = ({
 
 /** Inline agent picker dropdown shown in the chat header. */
 const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
+  const { t } = useTranslation();
   const {
     agents,
     agentStatuses,
@@ -228,7 +230,7 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
   ) : (
     <Bot className="size-3.5 flex-shrink-0" />
   );
-  const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? 'No agent');
+  const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? t('common.noAgent'));
 
   return (
     <div ref={ref} className="relative hidden sm:block">
@@ -251,7 +253,7 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
             className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted ${!activeAgent ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
           >
             <span className="size-2 flex-shrink-0 rounded-full bg-muted-foreground/30" />
-            No agent
+            {t('common.noAgent')}
           </button>
           {agents.length > 0 && <div className="my-1 border-t border-border/50" />}
           {agents.map((agent) => {

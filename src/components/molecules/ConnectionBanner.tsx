@@ -1,5 +1,6 @@
 import { RefreshCw, WifiOff } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useConnection } from '../../hooks/useConnection';
 
@@ -12,6 +13,7 @@ function formatElapsed(ms: number): string {
 }
 
 export const ConnectionBanner: React.FC = () => {
+  const { t } = useTranslation();
   const { connected, reconnecting, attempt, disconnectedAt } = useConnection();
   const [elapsed, setElapsed] = useState('');
 
@@ -28,8 +30,11 @@ export const ConnectionBanner: React.FC = () => {
 
   if (connected) return null;
 
-  const attemptLabel = attempt > 0 ? ` (attempt ${attempt})` : '';
-  const elapsedLabel = elapsed ? ` — ${elapsed} ago` : '';
+  const elapsedLabel = elapsed ? ` \u2014 ${elapsed} ago` : '';
+  const reconnectLabel =
+    attempt > 0
+      ? t('connection.serverUnreachableAttempt', { attempt })
+      : t('connection.serverUnreachable');
 
   return (
     <div
@@ -40,7 +45,7 @@ export const ConnectionBanner: React.FC = () => {
         <>
           <RefreshCw size={14} className="animate-spin" />
           <span>
-            Server unreachable, retrying{attemptLabel}
+            {reconnectLabel}
             {elapsedLabel}
           </span>
         </>
@@ -48,7 +53,7 @@ export const ConnectionBanner: React.FC = () => {
       {!reconnecting && (
         <>
           <WifiOff size={14} />
-          <span>Server disconnected</span>
+          <span>{t('connection.serverDisconnected')}</span>
         </>
       )}
     </div>

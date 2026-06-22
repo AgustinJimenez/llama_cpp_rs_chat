@@ -8,6 +8,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface ModelFileInputProps {
   modelPath: string;
@@ -37,6 +38,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   isTauri: _isTauri,
   handleBrowseFile,
 }) => {
+  const { t } = useTranslation();
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const historyChevron = historyExpanded ? (
     <ChevronDown className="size-3" />
@@ -56,7 +58,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   const pathLabel = modelPath ? (
     <span className="truncate font-mono text-xs">{modelPath}</span>
   ) : (
-    <span className="text-foreground/60">Click to select a .gguf model file…</span>
+    <span className="text-foreground/60">{t('modelFile.browsePrompt')}</span>
   );
   const buttonStateClass = isCheckingFile
     ? 'opacity-60'
@@ -95,7 +97,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               data-testid="file-checking"
             >
               <Clock className="size-3" />
-              Checking file…
+              {t('modelFile.checkingFile')}
             </span>
           )}
           {!isCheckingFile && fileExists === true && (
@@ -105,7 +107,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               id="file-found-label"
             >
               <CheckCircle className="size-3" />
-              File found and accessible
+              {t('modelFile.fileFound')}
             </span>
           )}
           {!isCheckingFile && fileExists === false && !!directoryError && (
@@ -140,7 +142,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           {!isCheckingFile && fileExists === false && !directoryError && (
             <span className="flex items-center gap-1 text-red-600">
               <XCircle className="size-3" />
-              File not found or inaccessible
+              {t('modelFile.fileNotFound')}
             </span>
           )}
         </div>
@@ -156,7 +158,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           >
             {historyChevron}
             <Clock className="size-3" />
-            Recent models ({modelHistory.length})
+            {t('modelFile.recentModels', { count: modelHistory.length })}
           </button>
           {!!historyExpanded &&
             modelHistory.map((path) => (

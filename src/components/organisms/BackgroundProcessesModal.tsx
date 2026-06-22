@@ -1,5 +1,6 @@
 import { Terminal, X, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const SECONDS_PER_HOUR = 3600;
 const MODAL_POLL_INTERVAL_MS = 3000;
@@ -42,6 +43,7 @@ function truncateCommand(cmd: string, maxLen = 60): string {
 }
 
 const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => {
+  const { t } = useTranslation();
   const [lines, setLines] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -79,7 +81,7 @@ const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => 
   if (lines.length === 0) {
     return (
       <div className="mt-2 rounded bg-black/40 px-3 py-2 text-xs text-muted-foreground">
-        No output captured yet.
+        {t('backgroundProcesses.noOutputCaptured')}
       </div>
     );
   }
@@ -105,6 +107,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [processes, setProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [killing, setKilling] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -170,7 +173,9 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
     processes.length > 0
       ? processes.map((proc) => {
           const isExpanded = expanded.has(proc.pid);
-          const expandTitle = isExpanded ? 'Hide output' : 'Show output';
+          const expandTitle = isExpanded
+            ? t('backgroundProcesses.hideOutput')
+            : t('backgroundProcesses.showOutput');
           const expandIcon = isExpanded ? (
             <ChevronDown className="size-3.5" />
           ) : (
@@ -179,17 +184,17 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           const statusBadge = proc.alive ? (
             <span className="inline-flex items-center gap-1 text-green-400">
               <span className="size-1.5 animate-pulse rounded-full bg-green-400" />
-              alive
+              {t('backgroundProcesses.alive')}
             </span>
           ) : (
-            <span className="text-red-400">exited</span>
+            <span className="text-red-400">{t('backgroundProcesses.exited')}</span>
           );
           const killButton = proc.alive ? (
             <button
               onClick={() => handleKill(proc.pid)}
               disabled={killing.has(proc.pid)}
               className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-              title="Kill process"
+              title={t('backgroundProcesses.killProcess')}
             >
               <X className="size-4" />
             </button>
@@ -234,7 +239,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
         >
           <Trash2 className="size-3.5" />
-          Kill All
+          {t('backgroundProcesses.killAll', { count: aliveCount })}
         </button>
       </div>
     ) : null;
@@ -245,17 +250,17 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Terminal className="size-5" />
-            Background Processes
+            {t('backgroundProcesses.title')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            View and manage background processes
+            {t('backgroundProcesses.viewManage')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[70vh] space-y-2 overflow-y-auto py-2">
           {processes.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No background processes running
+              {t('backgroundProcesses.noProcessesRunning')}
             </p>
           )}
           {processList}

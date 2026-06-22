@@ -2,6 +2,7 @@ import type { Chart as ChartInstance } from 'chart.js';
 import mermaid from 'mermaid';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +67,7 @@ interface MarkdownContentProps {
 
 /** Renders a mermaid diagram from source code. */
 const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +116,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   if (error) {
     return (
       <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
-        <div className="mb-1 font-medium text-red-400">Mermaid Error</div>
+        <div className="mb-1 font-medium text-red-400">{t('markdown.mermaidError')}</div>
         <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
         <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{code}</pre>
       </div>
@@ -124,7 +126,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   if (!svg) {
     return (
       <div className="my-2 animate-pulse rounded bg-muted p-4 text-sm text-muted-foreground">
-        Rendering diagram…
+        {t('markdown.renderingDiagram')}
       </div>
     );
   }
@@ -166,6 +168,7 @@ function exportChartCsv(code: string) {
 
 /** Chart.js-powered data chart from JSON spec. */
 const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,7 +292,7 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   if (error) {
     return (
       <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
-        <div className="mb-1 font-medium text-red-400">Chart Error</div>
+        <div className="mb-1 font-medium text-red-400">{t('markdown.chartError')}</div>
         <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
       </div>
     );

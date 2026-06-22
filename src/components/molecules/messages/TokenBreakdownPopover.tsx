@@ -1,5 +1,6 @@
 import { Database } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const MIN_BAR_SEGMENT_PCT = 0.3;
 
@@ -26,6 +27,7 @@ export const TokenBreakdownPopover = ({
   maxTokens,
   formatNumber,
 }: Props) => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -53,7 +55,9 @@ export const TokenBreakdownPopover = ({
       </button>
       {!!open && (
         <div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-border bg-card p-3 shadow-xl">
-          <div className="mb-2 text-xs font-semibold text-foreground">Context Usage</div>
+          <div className="mb-2 text-xs font-semibold text-foreground">
+            {t('tokenBreakdown.contextUsage')}
+          </div>
           {/* Stacked bar */}
           <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-muted">
             {CATEGORIES.map(({ key, color }) => {
@@ -90,7 +94,7 @@ export const TokenBreakdownPopover = ({
           {/* Free */}
           <div className="mt-1 flex items-center gap-2 border-t border-border pt-1 text-[11px]">
             <div className="size-2 flex-shrink-0 rounded-full bg-muted-foreground" />
-            <span className="flex-1 text-muted-foreground">Free</span>
+            <span className="flex-1 text-muted-foreground">{t('tokenBreakdown.free')}</span>
             <span className="tabular-nums text-foreground/80">{formatNumber(free)}</span>
             <span className="w-12 text-right tabular-nums text-muted-foreground">{freePct}%</span>
           </div>

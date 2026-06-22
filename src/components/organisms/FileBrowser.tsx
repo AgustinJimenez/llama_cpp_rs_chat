@@ -1,5 +1,6 @@
 import { Folder, File, ArrowLeft, HardDrive } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { FileItem } from '../../types';
 import { browseFiles } from '../../utils/tauriCommands';
@@ -34,6 +35,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   mode = 'file',
   startPath,
 }) => {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [currentPath, setCurrentPath] = useState<string>(startPath ?? '/app/models');
   const [parentPath, setParentPath] = useState<string | undefined>();
@@ -93,17 +95,19 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
   };
 
+  const effectiveTitle = title || t('fileBrowser.selectModel');
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-h-[80vh] max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HardDrive className="size-5" />
-            {title}
+            {effectiveTitle}
           </DialogTitle>
           <DialogDescription>
-            {mode === 'directory' && 'Navigate to a folder and click "Select This Folder"'}
-            {mode !== 'directory' && `Browse and select a model file (${filter} files)`}
+            {mode === 'directory' && t('fileBrowser.directoryModeDescription')}
+            {mode !== 'directory' && t('fileBrowser.fileModeDescription', { filter })}
           </DialogDescription>
         </DialogHeader>
 
@@ -123,7 +127,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 className="flex items-center gap-2"
               >
                 <ArrowLeft className="size-4" />
-                Back
+                {t('common.back')}
               </Button>
             )}
           </div>
@@ -134,17 +138,21 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               if (loading) {
                 return (
                   <div className="flex items-center justify-center py-8">
-                    <div className="text-sm text-muted-foreground">Loading files…</div>
+                    <div className="text-sm text-muted-foreground">{t('fileBrowser.loading')}</div>
                   </div>
                 );
               }
               if (error) {
-                return <div className="p-4 text-sm text-destructive">Error: {error}</div>;
+                return (
+                  <div className="p-4 text-sm text-destructive">
+                    {t('fileBrowser.error', { message: error })}
+                  </div>
+                );
               }
               if (files.length === 0) {
                 return (
                   <div className="flex items-center justify-center py-8">
-                    <div className="text-sm text-muted-foreground">No files found</div>
+                    <div className="text-sm text-muted-foreground">{t('fileBrowser.noFiles')}</div>
                   </div>
                 );
               }
@@ -185,7 +193,9 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                           )}
                         </div>
                         {!!isSelected && (
-                          <div className="text-xs font-medium text-primary">Selected</div>
+                          <div className="text-xs font-medium text-primary">
+                            {t('fileBrowser.selected')}
+                          </div>
                         )}
                       </div>
                     );
@@ -198,7 +208,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           {/* Selected File Display */}
           {!!selectedFile && (
             <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
-              <div className="text-sm font-medium">Selected file:</div>
+              <div className="text-sm font-medium">{t('fileBrowser.selectedFile')}</div>
               <div className="mt-1 font-mono text-sm text-muted-foreground">{selectedFile}</div>
             </div>
           )}
@@ -206,7 +216,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           {mode === 'directory' && (
             <Button
@@ -215,12 +225,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 onClose();
               }}
             >
-              Select This Folder
+              {t('common.selectThisFolder')}
             </Button>
           )}
           {mode !== 'directory' && (
             <Button onClick={handleSelectFile} disabled={!selectedFile}>
-              Select File
+              {t('common.selectFile')}
             </Button>
           )}
         </DialogFooter>

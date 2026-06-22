@@ -1,5 +1,6 @@
 import { Pencil, Archive, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useChatContext } from '../../../contexts/ChatContext';
 import { useModelContext } from '../../../contexts/ModelContext';
@@ -12,6 +13,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
   message,
   cleanContent,
 }) => {
+  const { t } = useTranslation();
   const { currentConversationId } = useChatContext();
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
@@ -91,7 +93,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
             onClick={() => setExpanded(!expanded)}
             className="flex-1 truncate text-left transition-colors hover:text-white"
           >
-            Earlier messages summarized
+            {t('compactionSummary.messagesSummarized')}
           </button>
           {!!modelReady && (
             <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -135,7 +137,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
                     onClick={() => setIsEditing(false)}
                     className="rounded px-2 py-1 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/70"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={handleSave}

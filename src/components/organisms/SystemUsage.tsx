@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { useSystemResources } from '../../contexts/SystemResourcesContext';
 
@@ -8,6 +9,7 @@ interface SystemUsageProps {
 
 // eslint-disable-next-line max-lines-per-function
 export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
+  const { t } = useTranslation();
   const { usage, history, hasData, totalVramGb, totalRamGb } = useSystemResources();
 
   const renderMiniGraph = (data: number[], color: string) => {
@@ -116,7 +118,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
       return (
         <div className="flex h-32 items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
-          <span className="text-sm">Loading system usage…</span>
+          <span className="text-sm">{t('systemUsage.loadingExpanded')}</span>
         </div>
       );
     }
@@ -125,7 +127,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
         {/* CPU */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-blue-400">CPU Usage</span>
+            <span className="text-sm font-semibold text-blue-400">{t('systemUsage.cpuUsage')}</span>
             <span className="text-lg font-bold text-foreground">{usage.cpu.toFixed(1)}%</span>
           </div>
           <div className="rounded-lg border border-border bg-muted p-2">
@@ -141,7 +143,9 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
         {/* GPU */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-green-500">GPU Usage</span>
+            <span className="text-sm font-semibold text-green-500">
+              {t('systemUsage.gpuUsage')}
+            </span>
             <span className="text-lg font-bold text-foreground">{usage.gpu.toFixed(1)}%</span>
           </div>
           <div className="rounded-lg border border-border bg-muted p-2">
@@ -157,7 +161,9 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
         {/* RAM */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-purple-400">RAM Usage</span>
+            <span className="text-sm font-semibold text-purple-400">
+              {t('systemUsage.ramUsage')}
+            </span>
             <span className="text-lg font-bold text-foreground">{usage.ram.toFixed(1)}%</span>
           </div>
           <div className="rounded-lg border border-border bg-muted p-2">
@@ -174,7 +180,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
         {typeof usage.app_ram_gb === 'number' && usage.app_ram_gb > 0 && (
           <div className="border-t border-border/50 pt-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">App RAM</span>
+              <span className="text-xs text-muted-foreground">{t('systemUsage.appRam')}</span>
               <span className="text-sm font-semibold text-foreground">
                 {usage.app_ram_gb.toFixed(2)} GB
               </span>
@@ -190,7 +196,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2 text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        <span className="text-xs font-medium">Loading</span>
+        <span className="text-xs font-medium">{t('systemUsage.loading')}</span>
       </div>
     );
   }
@@ -198,10 +204,12 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
     <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
       {/* CPU Usage */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-blue-400">CPU</span>
+        <span className="text-xs font-semibold text-blue-400">{t('systemUsage.cpu')}</span>
         <span className="text-xs font-medium text-foreground">{usage.cpu.toFixed(0)}%</span>
         {cpuGhz > 0 && (
-          <span className="text-[10px] text-muted-foreground">{cpuGhz.toFixed(1)}GHz</span>
+          <span className="text-[10px] text-muted-foreground">
+            {t('stats.cpuSpeed', { speed: cpuGhz.toFixed(1) })}
+          </span>
         )}
         <div className="rounded-lg border border-border bg-background px-2 py-1">
           {renderMiniGraph(cpuHistory, '#3b82f6')}
@@ -210,7 +218,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
 
       {/* GPU Usage */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-green-500">GPU</span>
+        <span className="text-xs font-semibold text-green-500">{t('systemUsage.gpu')}</span>
         <span className="text-xs font-medium text-foreground">{usage.gpu.toFixed(0)}%</span>
         <span className="text-[10px] text-muted-foreground">{effectiveVramGb.toFixed(0)}G</span>
         <div className="rounded-lg border border-border bg-background px-2 py-1">
@@ -220,7 +228,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
 
       {/* RAM Usage */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-purple-400">RAM</span>
+        <span className="text-xs font-semibold text-purple-400">{t('systemUsage.ram')}</span>
         <span className="text-xs font-medium text-foreground">{usage.ram.toFixed(0)}%</span>
         <span className="text-[10px] text-muted-foreground">
           {ramUsedGb.toFixed(0)}/{effectiveRamGb.toFixed(0)}G

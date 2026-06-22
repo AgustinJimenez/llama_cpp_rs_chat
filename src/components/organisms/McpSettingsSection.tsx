@@ -1,6 +1,7 @@
 import { Plus, Trash2, RefreshCw, Server, ToggleLeft, ToggleRight } from 'lucide-react';
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { useMcpServers } from '../../hooks/useMcpServers';
 import type { McpServerConfig, McpTransport } from '../../types';
@@ -14,6 +15,7 @@ function generateId(): string {
 
 // eslint-disable-next-line max-lines-per-function -- single cohesive form section
 export const McpSettingsSection: React.FC = () => {
+  const { t } = useTranslation();
   const {
     servers,
     statuses,
@@ -104,14 +106,14 @@ export const McpSettingsSection: React.FC = () => {
   };
 
   const getStatus = (id: string) => statuses.find((s) => s.id === id);
-  const refreshLabel = isRefreshing ? 'Refreshing...' : 'Refresh';
+  const refreshLabel = isRefreshing ? t('mcp.refreshing') : t('common.refresh');
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Server className="size-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">MCP Servers</span>
+          <span className="text-sm font-medium text-foreground">{t('mcp.title')}</span>
         </div>
         <div className="flex gap-2">
           <button
@@ -127,27 +129,24 @@ export const McpSettingsSection: React.FC = () => {
             onClick={() => setShowAddForm(!showAddForm)}
           >
             <Plus className="size-3" />
-            Add Server
+            {t('mcp.addServer')}
           </button>
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Connect external tool servers via the Model Context Protocol. After adding servers, click
-        Refresh to connect and discover tools.
-      </p>
+      <p className="text-xs text-muted-foreground">{t('mcp.description')}</p>
 
       {/* Add Server Form */}
       {!!showAddForm && (
         <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-3">
           <div className="space-y-1">
             <label htmlFor="mcp-server-name" className="text-xs font-medium text-foreground">
-              Name
+              {t('mcp.nameLabel')}
             </label>
             <input
               id="mcp-server-name"
               className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-              placeholder="e.g., filesystem"
+              placeholder={t('mcp.namePlaceholder')}
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
@@ -155,7 +154,7 @@ export const McpSettingsSection: React.FC = () => {
 
           <div className="space-y-1">
             <label htmlFor="mcp-transport" className="text-xs font-medium text-foreground">
-              Transport
+              {t('mcp.transportLabel')}
             </label>
             <select
               id="mcp-transport"
@@ -163,8 +162,8 @@ export const McpSettingsSection: React.FC = () => {
               value={formTransport}
               onChange={(e) => setFormTransport(e.target.value as 'Stdio' | 'Http')}
             >
-              <option value="Stdio">Stdio (child process)</option>
-              <option value="Http">HTTP/SSE</option>
+              <option value="Stdio">{t('mcp.transportStdio')}</option>
+              <option value="Http">{t('mcp.transportHttp')}</option>
             </select>
           </div>
 
@@ -172,24 +171,24 @@ export const McpSettingsSection: React.FC = () => {
             <>
               <div className="space-y-1">
                 <label htmlFor="mcp-command" className="text-xs font-medium text-foreground">
-                  Command
+                  {t('mcp.commandLabel')}
                 </label>
                 <input
                   id="mcp-command"
                   className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  placeholder="e.g., npx"
+                  placeholder={t('mcp.commandPlaceholder')}
                   value={formCommand}
                   onChange={(e) => setFormCommand(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
                 <label htmlFor="mcp-args" className="text-xs font-medium text-foreground">
-                  Arguments (space-separated)
+                  {t('mcp.argsLabel')}
                 </label>
                 <input
                   id="mcp-args"
                   className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  placeholder="e.g., -y @modelcontextprotocol/server-filesystem /tmp"
+                  placeholder={t('mcp.argsPlaceholder')}
                   value={formArgs}
                   onChange={(e) => setFormArgs(e.target.value)}
                 />
@@ -199,12 +198,12 @@ export const McpSettingsSection: React.FC = () => {
           {formTransport !== 'Stdio' && (
             <div className="space-y-1">
               <label htmlFor="mcp-url" className="text-xs font-medium text-foreground">
-                URL
+                {t('mcp.urlLabel')}
               </label>
               <input
                 id="mcp-url"
                 className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                placeholder="http://localhost:3000/sse"
+                placeholder={t('mcp.urlPlaceholder')}
                 value={formUrl}
                 onChange={(e) => setFormUrl(e.target.value)}
               />
@@ -216,13 +215,13 @@ export const McpSettingsSection: React.FC = () => {
               className="flat-button bg-primary px-4 py-1.5 text-xs text-white"
               onClick={handleAdd}
             >
-              Add
+              {t('common.add')}
             </button>
             <button
               className="flat-button bg-muted px-4 py-1.5 text-xs"
               onClick={() => setShowAddForm(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -230,9 +229,7 @@ export const McpSettingsSection: React.FC = () => {
 
       {/* Server List */}
       {servers.length === 0 && !showAddForm && (
-        <p className="py-2 text-xs italic text-muted-foreground">
-          No MCP servers configured. Click &quot;Add Server&quot; to get started.
-        </p>
+        <p className="py-2 text-xs italic text-muted-foreground">{t('mcp.noServers')}</p>
       )}
 
       {servers.map((server) => {
@@ -247,8 +244,19 @@ export const McpSettingsSection: React.FC = () => {
         ) : (
           <ToggleLeft className="size-4" />
         );
-        const toggleTitle = server.enabled ? 'Disable' : 'Enable';
-        const toolCountSuffix = status && status.tool_count !== 1 ? 's' : '';
+
+        const toolsElement =
+          status && status.tools.length > 0 ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {t('mcp.toolsList', {
+                names: status.tools
+                  .map((toolName) => toolName.replace(/^mcp__[^_]+__/, ''))
+                  .join(', '),
+              })}
+            </div>
+          ) : null;
+
+        const toggleTitle = server.enabled ? t('common.disable') : t('common.enable');
 
         return (
           <div
@@ -259,6 +267,7 @@ export const McpSettingsSection: React.FC = () => {
               className="mt-0.5 text-muted-foreground hover:text-foreground"
               onClick={() => handleToggle(server)}
               title={toggleTitle}
+              type="button"
             >
               {toggleIcon}
             </button>
@@ -268,24 +277,20 @@ export const McpSettingsSection: React.FC = () => {
                 <span className="text-sm font-medium text-foreground">{server.name}</span>
                 {!!status && (
                   <span className="text-xs text-green-500">
-                    {status.tool_count} tool{toolCountSuffix}
+                    {t('mcp.toolsLabel', { count: status.tool_count })}
                   </span>
                 )}
               </div>
               <div className="truncate text-xs text-muted-foreground" title={transportLabel}>
                 {server.transport.type}: {transportLabel}
               </div>
-              {!!status && status.tools.length > 0 && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Tools: {status.tools.map((t) => t.replace(/^mcp__[^_]+__/, '')).join(', ')}
-                </div>
-              )}
+              {toolsElement}
             </div>
 
             <button
               className="text-muted-foreground hover:text-red-500"
               onClick={() => handleDelete(server)}
-              title="Remove"
+              title={t('common.remove')}
             >
               <Trash2 className="size-3.5" />
             </button>

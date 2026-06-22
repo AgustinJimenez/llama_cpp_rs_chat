@@ -7,6 +7,7 @@ const SSE_DATA_PREFIX_LENGTH = 6;
 
 import type { SamplerConfig, ToolCall, ToolTags } from '../types';
 
+import { getAuthHeaders } from './remoteAuth';
 import { isTauriEnv } from './tauri';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -129,7 +130,11 @@ async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promis
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const merged: RequestInit = {
+    ...init,
+    headers: { ...getAuthHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+  };
+  const response = await fetch(url, merged);
   if (!response.ok) {
     const text = await response.text().catch(() => response.statusText);
     // If the error body is JSON with a message field, surface just that string

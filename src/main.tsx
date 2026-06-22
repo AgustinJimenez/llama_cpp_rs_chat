@@ -12,8 +12,10 @@ import { ModelProvider } from './contexts/ModelContext.tsx';
 import { SystemResourcesProvider } from './contexts/SystemResourcesContext.tsx';
 import { UIProvider } from './contexts/UIContext.tsx';
 import { setupFrontendLogging } from './utils/logging.ts';
+import { initRemoteToken } from './utils/remoteAuth.ts';
 
 setupFrontendLogging();
+initRemoteToken();
 
 if (import.meta.env.DEV) {
   const axe = await import('@axe-core/react');

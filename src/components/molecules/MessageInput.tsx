@@ -1,6 +1,7 @@
 import { ArrowUp, X, FileText, Loader2, Paperclip, Clock } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const LINE_HEIGHT_PX = 20;
 const MAX_VISIBLE_LINES = 7;
@@ -12,7 +13,6 @@ import { StatsBar } from './LiveStreamingStats';
 import {
   type AttachedFile,
   FILE_ACCEPT,
-  formatCharCount,
   buildFinalMessage,
   useFileAttachments,
 } from './MessageInputAttachments';
@@ -58,6 +58,7 @@ const FilePreviews = ({
   files: AttachedFile[];
   onRemove: (id: string) => void;
 }) => {
+  const { t } = useTranslation();
   if (files.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-2 px-5 pb-1 pt-2">
@@ -70,7 +71,9 @@ const FilePreviews = ({
           <span className="max-w-[150px] truncate font-medium" title={file.name}>
             {file.name}
           </span>
-          <span className="text-muted-foreground">{formatCharCount(file.text.length)} chars</span>
+          <span className="text-muted-foreground">
+            {t('chat.charsCount', { count: file.text.length })}
+          </span>
           <button
             type="button"
             onClick={() => onRemove(file.id)}
@@ -85,22 +88,27 @@ const FilePreviews = ({
   );
 };
 
-const DragOverlay = () => (
-  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm">
-    <div className="flex items-center gap-2 text-sm font-medium text-primary">
-      <FileText className="size-5" />
-      Drop files here
+const DragOverlay = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm">
+      <div className="flex items-center gap-2 text-sm font-medium text-primary">
+        <FileText className="size-5" />
+        {t('chat.dropFilesHere')}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-const ExtractingIndicator = ({ count }: { count: number }) =>
-  count > 0 ? (
+const ExtractingIndicator = ({ count }: { count: number }) => {
+  const { t } = useTranslation();
+  return count > 0 ? (
     <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
       <Loader2 className="size-3 animate-spin" />
-      Extracting text from {count} file{count > 1 && 's'}...
+      {t('chat.extractingFiles', { count })}
     </div>
   ) : null;
+};
 
 const QueuedMessageIndicator = ({
   content,
@@ -109,12 +117,13 @@ const QueuedMessageIndicator = ({
   content: string;
   onCancel: () => void;
 }) => {
+  const { t } = useTranslation();
   const displayContent = content.length > 60 ? `${content.slice(0, 60)}…` : content;
   return (
     <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
       <Clock className="size-3 flex-shrink-0" />
       <span className="flex-1 truncate">
-        Queued: <span className="text-foreground">{displayContent}</span>
+        {t('chat.queued')}: <span className="text-foreground">{displayContent}</span>
       </span>
       <button
         type="button"

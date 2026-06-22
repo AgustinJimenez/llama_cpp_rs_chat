@@ -2,6 +2,7 @@
 import { Settings } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../../hooks/useSettings';
 import type { SamplerConfig } from '../../types';
@@ -31,6 +32,7 @@ function formatErrorTime(timestamp: number) {
 
 // eslint-disable-next-line max-lines-per-function -- single modal component, splitting tabs would fragment readability
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const { config, updateConfig } = useSettings();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('General');
@@ -87,9 +89,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="size-5" />
-            App Settings
+            {t('appSettings.title')}
           </DialogTitle>
-          <DialogDescription className="sr-only">Application settings</DialogDescription>
+          <DialogDescription className="sr-only">{t('appSettings.title')}</DialogDescription>
         </DialogHeader>
 
         <div className="mb-4 flex border-b border-border">
@@ -104,7 +106,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {tab}
+              {tab === 'General' && t('appSettings.tabGeneral')}
+              {tab === 'Notifications' && t('appSettings.tabNotifications')}
+              {tab === 'MCP' && t('appSettings.tabMcp')}
+              {tab === 'Errors' && t('appSettings.tabErrors')}
             </button>
           ))}
         </div>
@@ -114,27 +119,30 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               {/* Theme Toggle */}
               <div className="space-y-2">
-                <span className="text-sm font-medium text-foreground">Theme</span>
+                <span className="text-sm font-medium text-foreground">
+                  {t('appSettings.theme')}
+                </span>
                 <div className="flex gap-2">
-                  {(['dark', 'light'] as const).map((t) => {
-                    const themeLabel = t === 'dark' ? 'Dark' : 'Light';
+                  {(['dark', 'light'] as const).map((tVal) => {
+                    const themeLabel =
+                      tVal === 'dark' ? t('appSettings.themeDark') : t('appSettings.themeLight');
                     return (
                       <button
-                        key={t}
+                        key={tVal}
                         type="button"
                         onClick={() => {
                           const html = document.documentElement;
-                          if (t === 'dark') {
+                          if (tVal === 'dark') {
                             html.classList.add('dark');
                           } else {
                             html.classList.remove('dark');
                           }
-                          localStorage.setItem('theme', t);
+                          localStorage.setItem('theme', tVal);
                         }}
                         className={`rounded-lg border px-4 py-2 text-sm transition-colors ${
                           (typeof window !== 'undefined' &&
                             document.documentElement.classList.contains('dark')) ===
-                          (t === 'dark')
+                          (tVal === 'dark')
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-border bg-muted text-muted-foreground hover:text-foreground'
                         }`}
@@ -149,11 +157,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               {/* Max tool calls setting */}
               <div className="space-y-2">
                 <label htmlFor="max-tool-calls" className="text-sm font-medium text-foreground">
-                  Max tool calls per turn
+                  {t('appSettings.maxToolCalls')}
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Safety limit for agentic tool call loops. The model will stop after this many tool
-                  calls and ask you to continue.
+                  {t('appSettings.maxToolCallsDescription')}
                 </p>
                 <input
                   id="max-tool-calls"
@@ -179,11 +186,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               {/* Loop detection limit */}
               <div className="space-y-2">
                 <label htmlFor="loop-detection" className="text-sm font-medium text-foreground">
-                  Loop detection limit
+                  {t('appSettings.loopDetection')}
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Stop if the same tool call is repeated this many times in a row. A warning is
-                  injected at n-1 to give the model a chance to change approach.
+                  {t('appSettings.loopDetectionDescription')}
                 </p>
                 <input
                   id="loop-detection"
@@ -216,16 +222,15 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               {/* Telegram Notifications */}
               <div className="space-y-2">
                 <label htmlFor="telegram-bot-token" className="text-sm font-medium text-foreground">
-                  Telegram Notifications
+                  {t('appSettings.telegramNotifications')}
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Let the model send you Telegram messages (task completion, errors). Create a bot
-                  via @BotFather.
+                  {t('appSettings.telegramNotificationsDescription')}
                 </p>
                 <input
                   id="telegram-bot-token"
                   type="text"
-                  placeholder="Bot Token (from @BotFather)"
+                  placeholder={t('appSettings.telegramBotTokenPlaceholder')}
                   className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_bot_token || ''}
                   onChange={(e) =>
@@ -236,7 +241,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 />
                 <input
                   type="text"
-                  placeholder="Chat ID (send /start to your bot, then check)"
+                  placeholder={t('appSettings.telegramChatIdPlaceholder')}
                   className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_chat_id || ''}
                   onChange={(e) =>
@@ -259,10 +264,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-medium text-foreground">App Errors</h3>
+                  <h3 className="text-sm font-medium text-foreground">
+                    {t('appSettings.appErrors')}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
-                    Persisted frontend runtime errors and unhandled rejections. Stored in SQLite so
-                    they survive app restarts.
+                    {t('appSettings.appErrorsDescription')}
                   </p>
                 </div>
                 <button
@@ -270,15 +276,17 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   onClick={handleClearErrors}
                   className="whitespace-nowrap rounded-lg border border-border bg-muted px-3 py-1.5 text-xs text-foreground hover:bg-muted/80"
                 >
-                  Clear Errors
+                  {t('appSettings.clearErrors')}
                 </button>
               </div>
 
               {!!errorsLoading && (
-                <div className="text-sm text-muted-foreground">Loading errors…</div>
+                <div className="text-sm text-muted-foreground">
+                  {t('appSettings.loadingErrors')}
+                </div>
               )}
               {!errorsLoading && appErrors.length === 0 && (
-                <div className="text-sm text-muted-foreground">No app errors recorded.</div>
+                <div className="text-sm text-muted-foreground">{t('appSettings.noErrors')}</div>
               )}
               {!errorsLoading && appErrors.length > 0 && (
                 <div className="space-y-2">
@@ -301,7 +309,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                         </div>
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        Source: {error.source}
+                        {t('appSettings.errorSource', { source: error.source })}
                       </div>
                       {!!error.details && (
                         <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-background/60 p-2 text-[11px] text-foreground/80">
@@ -318,13 +326,13 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
 
         <DialogFooter>
           <button className="flat-button bg-muted px-6 py-2" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             className="flat-button bg-primary px-6 py-2 text-primary-foreground"
             onClick={handleSave}
           >
-            Save
+            {t('common.save')}
           </button>
         </DialogFooter>
       </DialogContent>

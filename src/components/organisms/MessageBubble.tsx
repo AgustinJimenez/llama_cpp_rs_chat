@@ -1,5 +1,6 @@
 import { Pencil, RefreshCw, Play, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useModelContext } from '../../contexts/ModelContext';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
@@ -46,6 +47,7 @@ const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }>
   toolCalls,
   isGenerating,
 }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const counts = toolCalls.reduce<Record<string, number>>((acc, tc) => {
@@ -78,7 +80,9 @@ const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }>
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground/70 hover:text-foreground/90"
       >
         <Chevron className="size-3 flex-shrink-0" />
-        <span className="font-medium">{toolCalls.length} tool calls</span>
+        <span className="font-medium">
+          {t('messageBubble.toolCallsCount', { count: toolCalls.length })}
+        </span>
         <span className="text-foreground/40">: {summary}</span>
       </button>
       {expandedPanel}
@@ -152,20 +156,25 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
 const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> = ({
   message,
   cleanContent,
-}) => (
-  <div
-    className="flex w-full justify-center"
-    data-testid={`message-${message.role}`}
-    data-message-id={message.id}
-  >
-    <details className="w-full max-w-[90%] rounded-lg border border-border bg-muted p-3">
-      <summary className="cursor-pointer select-none text-sm font-semibold">System prompt</summary>
-      <pre className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-        {cleanContent}
-      </pre>
-    </details>
-  </div>
-);
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="flex w-full justify-center"
+      data-testid={`message-${message.role}`}
+      data-message-id={message.id}
+    >
+      <details className="w-full max-w-[90%] rounded-lg border border-border bg-muted p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold">
+          {t('messageBubble.systemPrompt')}
+        </summary>
+        <pre className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          {cleanContent}
+        </pre>
+      </details>
+    </div>
+  );
+};
 
 /**
  * User message component with inline edit support.
@@ -178,6 +187,7 @@ const UserMessage: React.FC<{
   onEditMessage?: (messageIndex: number, newContent: string) => void;
   isGenerating?: boolean;
 }> = ({ message, cleanContent, viewMode, messageIndex, onEditMessage, isGenerating }) => {
+  const { t } = useTranslation();
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
   const [isEditing, setIsEditing] = useState(false);
@@ -242,14 +252,14 @@ const UserMessage: React.FC<{
               onClick={handleCancel}
               className="rounded-lg px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleSubmit}
               disabled={!editContent.trim()}
               className="rounded-lg bg-primary px-3 py-1 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
-              Submit
+              {t('common.submit')}
             </button>
           </div>
         </div>
@@ -352,6 +362,7 @@ const AssistantMessage: React.FC<{
   onRegenerate,
   onContinue,
 }) => {
+  const { t } = useTranslation();
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
   const ariaLive = isStreaming ? ('polite' as const) : undefined;
@@ -425,7 +436,9 @@ const AssistantMessage: React.FC<{
                     >
                       <Loader2 className="size-3 flex-shrink-0 animate-spin" />
                       <span className="font-medium">{segment.name ?? 'tool call'}</span>
-                      <span className="text-foreground/40">writing arguments…</span>
+                      <span className="text-foreground/40">
+                        {t('messageBubble.writingArguments')}
+                      </span>
                     </div>
                   );
                 }

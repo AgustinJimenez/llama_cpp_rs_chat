@@ -18,6 +18,7 @@ import {
 import type { MouseEvent } from 'react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/atoms/card';
 import { ModelFileInput, ModelConfigSystemPrompt } from '@/components/molecules';
@@ -126,6 +127,7 @@ const BLANK_LOCAL_CONFIG: SamplerConfig = {
 
 // eslint-disable-next-line max-lines-per-function, complexity
 export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
+  const { t } = useTranslation();
   const {
     agents,
     loadAgents,
@@ -712,7 +714,6 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     !selectedProvider.available;
   const customProviderInputValue = providerId === 'custom' ? '' : providerId;
   const selectedProviderStatus = selectedProvider?.available ? 'configured' : 'needs setup';
-  const agentCountLabel = agents.length !== 1 ? 's' : '';
 
   if (!isOpen) return null;
 
@@ -725,11 +726,12 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
   else if (view === 'config') headerBack = () => setView('pick');
 
   let headerTitle: string;
-  if (view === 'list') headerTitle = 'Agents';
-  else if (view === 'pick') headerTitle = editingAgent ? 'Edit Agent' : 'New Agent';
-  else if (providerMode === 'local') headerTitle = 'Local Model';
-  else if (providerMode === 'remote') headerTitle = 'Remote Provider';
-  else headerTitle = 'CLI Provider';
+  if (view === 'list') headerTitle = t('agentSelector.title');
+  else if (view === 'pick') {
+    headerTitle = editingAgent ? t('agentSelector.editAgent') : t('agentSelector.newAgent');
+  } else if (providerMode === 'local') headerTitle = t('agentSelector.localModelTitle');
+  else if (providerMode === 'remote') headerTitle = t('agentSelector.remoteProviderTitle');
+  else headerTitle = t('agentSelector.cliProviderTitle');
 
   // Wider modal for Local config step
   const modalWidth =
@@ -760,7 +762,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
               <button
                 onClick={headerBack}
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                aria-label="Back"
+                aria-label={t('common.back')}
               >
                 <ChevronLeft className="size-4" />
               </button>
@@ -783,7 +785,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
             <div className="space-y-2 p-5">
               {agents.length === 0 && (
                 <div className="py-10 text-center text-sm text-muted-foreground">
-                  No agents yet. Create one to get started.
+                  {t('agentSelector.noAgents')}
                 </div>
               )}
               {agents.length > 0 &&
@@ -796,8 +798,8 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
 
                   const isConfirmDelete = confirmDeleteId === agent.id;
                   const deleteTitle = isConfirmDelete
-                    ? 'Click again to confirm delete'
-                    : 'Delete agent';
+                    ? t('agentSelector.confirmDelete')
+                    : t('agentSelector.deleteAgent');
 
                   return (
                     <div
@@ -817,12 +819,12 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                             </span>
                             {!!(agentStatus === 'generating') && (
                               <span className="flex-shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-400">
-                                running
+                                {t('agentSelector.running')}
                               </span>
                             )}
                             {!!(agentStatus === 'active') && (
                               <span className="flex-shrink-0 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] text-primary">
-                                active
+                                {t('agentSelector.active')}
                               </span>
                             )}
                           </div>
@@ -833,7 +835,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                         <div className="flex flex-shrink-0 items-center gap-1">
                           <button
                             onClick={() => openEdit(agent)}
-                            title="Edit agent"
+                            title={t('agentSelector.editAgent')}
                             className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           >
                             <Pencil className="size-3.5" />
@@ -860,12 +862,12 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
               <div className="space-y-1.5">
                 {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                 <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Name
+                  {t('agentSelector.nameLabel')}
                 </label>
                 <input
                   ref={nameInputRef}
                   type="text"
-                  placeholder="e.g. Fast Local, Claude Sonnet..."
+                  placeholder={t('agentSelector.namePlaceholder')}
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
                   className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -874,7 +876,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
               <div className="space-y-2">
                 {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                 <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Provider
+                  {t('agentSelector.providerLabel')}
                 </label>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   {(
@@ -883,22 +885,22 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                         mode: 'local' as ProviderMode,
                         Icon: Cpu,
                         iconClass: 'text-emerald-400',
-                        title: 'Local',
-                        desc: 'Run a GGUF model with llama.cpp.',
+                        title: t('agentSelector.localModeTitle'),
+                        desc: t('agentSelector.localModeDesc'),
                       },
                       {
                         mode: 'remote' as ProviderMode,
                         Icon: Cloud,
                         iconClass: 'text-cyan-400',
-                        title: 'Remote',
-                        desc: 'Use an OpenAI-compatible API provider.',
+                        title: t('agentSelector.remoteModeTitle'),
+                        desc: t('agentSelector.remoteModeDesc'),
                       },
                       {
                         mode: 'cli' as ProviderMode,
                         Icon: Bot,
                         iconClass: 'text-violet-400',
-                        title: 'CLI',
-                        desc: 'Use Claude Code, Codex, or Gemini CLI.',
+                        title: t('agentSelector.cliModeTitle'),
+                        desc: t('agentSelector.cliModeDesc'),
                       },
                     ] as const
                   ).map(({ mode, Icon, iconClass, title, desc }) => (
@@ -926,19 +928,19 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
               {/* Agent name inline */}
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="flex-shrink-0 text-xs text-muted-foreground">Agent:</span>
+                  <span className="flex-shrink-0 text-xs text-muted-foreground">
+                    {t('agentSelector.agentPrefix')}
+                  </span>
                   <input
                     type="text"
-                    placeholder="Name..."
+                    placeholder={t('agentSelector.agentNamePlaceholder')}
                     value={agentName}
                     onChange={(e) => setAgentName(e.target.value)}
                     className={`flex-1 rounded-md border bg-muted px-2 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none ${isDuplicateName ? 'border-red-500/70' : 'border-border'}`}
                   />
                 </div>
                 {!!isDuplicateName && (
-                  <p className="pl-12 text-xs text-red-400">
-                    An agent with this name already exists.
-                  </p>
+                  <p className="pl-12 text-xs text-red-400">{t('agentSelector.nameExists')}</p>
                 )}
               </div>
 
@@ -948,7 +950,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                   {/* Model File */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Model File</CardTitle>
+                      <CardTitle className="text-sm">{t('agentSelector.modelFile')}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <ModelFileInput
@@ -971,7 +973,9 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                       {!!isCheckingFile && (
                         <div className="flex items-center gap-2">
                           <Loader2 className="size-4 animate-spin" />
-                          <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
+                          <p className="text-sm text-muted-foreground">
+                            {t('agentSelector.ggufMetadata')}
+                          </p>
                         </div>
                       )}
 
@@ -994,7 +998,9 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                               className="size-3.5"
                             />
                             <Eye className="size-4 text-muted-foreground" />
-                            <span className="font-medium">Vision Projector (mmproj)</span>
+                            <span className="font-medium">
+                              {t('agentSelector.visionProjector')}
+                            </span>
                           </label>
                           {!!mmprojEnabled && (
                             <div className="space-y-1.5 pl-6">
@@ -1013,7 +1019,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                                   )}
                                   {!mmprojPath && (
                                     <span className="text-xs text-muted-foreground">
-                                      Click to select mmproj .gguf file...
+                                      {t('agentSelector.mmprojSelect')}
                                     </span>
                                   )}
                                 </button>
@@ -1046,7 +1052,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                             {!isConfigExpanded && (
                               <ChevronRight className="size-5 stroke-[3] text-white" />
                             )}
-                            Model Configurations
+                            {t('common.modelConfigurations')}
                           </CardTitle>
                         </button>
                       </CardHeader>
@@ -1116,7 +1122,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                     <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Provider
+                      {t('agentSelector.providerLabel')}
                     </label>
                     <select
                       value={remoteProviderSelectValue}
@@ -1132,18 +1138,19 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                           </option>
                         );
                       })}
-                      <option value="custom">Custom</option>
+                      <option value="custom">{t('agentSelector.custom')}</option>
                     </select>
                     {remoteProviderSelectValue === 'custom' && (
                       <input
                         type="text"
-                        placeholder="Provider ID (e.g. openai, groq)"
+                        placeholder={t('agentSelector.providerIdPlaceholder')}
                         value={customProviderInputValue}
                         onChange={(e) => setProviderId(e.target.value)}
                         className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                       />
                     )}
                   </div>
+
                   {!!selectedProvider && (
                     <div
                       className={`rounded-md border px-3 py-2 text-xs ${selectedProvider.available ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-border bg-muted/30 text-muted-foreground'}`}
@@ -1160,11 +1167,11 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                       <div className="space-y-1">
                         {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                         <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                          API Key
+                          {t('provider.apiKeyLabel')}
                         </label>
                         <input
                           type="password"
-                          placeholder="sk-..."
+                          placeholder={t('provider.apiKeyPlaceholder')}
                           value={apiKeyInputs[providerId]?.api_key || ''}
                           onChange={(e) =>
                             setApiKeyInputs((prev) => ({
@@ -1178,12 +1185,12 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                       <div className="space-y-1">
                         {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                         <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                          Base URL
+                          {t('provider.baseUrlLabel')}
                         </label>
                         <input
                           type="text"
                           placeholder={
-                            selectedProvider?.default_base_url || 'https://api.example.com/v1'
+                            selectedProvider?.default_base_url || t('provider.baseUrlPlaceholder')
                           }
                           value={apiKeyInputs[providerId]?.base_url || ''}
                           onChange={(e) =>
@@ -1204,14 +1211,14 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                         {savingProvider === providerId && (
                           <Loader2 className="size-3 animate-spin" />
                         )}
-                        Save Provider
+                        {t('common.saveProvider')}
                       </button>
                     </div>
                   )}
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                     <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Model
+                      {t('agentSelector.modelLabel')}
                     </label>
                     {!!selectedProvider?.models?.length && (
                       <select
@@ -1228,7 +1235,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                     )}
                     <input
                       type="text"
-                      placeholder="Or type a model name..."
+                      placeholder={t('agentSelector.modelNamePlaceholder')}
                       value={providerModel}
                       onChange={(e) => setProviderModel(e.target.value)}
                       className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -1249,7 +1256,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                     <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      CLI Provider
+                      {t('agentSelector.cliProvider')}
                     </label>
                     <select
                       value={providerId}
@@ -1284,13 +1291,13 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
           {view === 'list' && (
             <>
               <span className="text-xs text-muted-foreground">
-                {agents.length} agent{agentCountLabel}
+                {t('agentSelector.agentCount', { count: agents.length })}
               </span>
               <button
                 onClick={openCreate}
                 className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
-                <Plus className="size-3.5" /> New Agent
+                <Plus className="size-3.5" /> {t('agentSelector.newAgent')}
               </button>
             </>
           )}
@@ -1299,7 +1306,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
               onClick={() => setView('list')}
               className="ml-auto rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           )}
           {view === 'config' && (
@@ -1308,11 +1315,13 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                 onClick={() => setView('pick')}
                 className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                Back
+                {t('common.back')}
               </button>
               {(() => {
-                let saveLabel = editingAgent ? 'Save Changes' : 'Create Agent';
-                if (saving) saveLabel = 'Saving...';
+                let saveLabel = editingAgent
+                  ? t('agentSelector.saveChanges')
+                  : t('agentSelector.createAgent');
+                if (saving) saveLabel = t('agentSelector.saving');
                 return (
                   <button
                     onClick={handleSave}
