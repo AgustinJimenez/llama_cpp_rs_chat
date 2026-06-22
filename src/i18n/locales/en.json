@@ -305,6 +305,7 @@
     "tabGeneral": "General",
     "tabNotifications": "Notifications",
     "tabMcp": "MCP",
+    "tabRemote": "Remote",
     "tabErrors": "Errors",
     "theme": "Theme",
     "maxToolCalls": "Max tool calls per turn",
@@ -535,6 +536,11 @@
     "tokenDescription": "The token is embedded in the QR code link. Regenerating it will log out all connected mobile clients.",
     "tokenRegenerated": "Token regenerated \u2014 existing sessions will need to re-pair",
     "tokenRegenFailed": "Failed to regenerate token",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "noLanUrl": "Could not determine local IP address.",
+    "regenerate": "Regenerate",
+    "upnpEnable": "Enable via UPnP",
+    "upnpDisable": "Disable UPnP",
+    "upnpActive": "UPnP active — public URL: {{url}}"
   }
 }

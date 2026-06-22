@@ -17,13 +17,14 @@ import {
 } from '../atoms/dialog';
 
 import { McpSettingsSection } from './McpSettingsSection';
+import { RemoteAccess } from './RemoteAccess';
 
 interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const TABS = ['General', 'Notifications', 'MCP', 'Errors'] as const;
+const TABS = ['General', 'Notifications', 'MCP', 'Remote', 'Errors'] as const;
 type Tab = (typeof TABS)[number];
 
 function formatErrorTime(timestamp: number) {
@@ -56,9 +57,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
       .then((errors) => {
         if (!cancelled) setAppErrors(errors);
       })
-      .catch((err) => {
+      .catch((error) => {
         if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : 'Failed to load app errors');
+          toast.error(error instanceof Error ? error.message : 'Failed to load app errors');
         }
       })
       .finally(() => {
@@ -82,8 +83,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
       await clearAppErrors();
       setAppErrors([]);
       toast.success('Error log cleared');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to clear app errors');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to clear app errors');
     }
   };
 
@@ -113,6 +114,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               {tab === 'General' && t('appSettings.tabGeneral')}
               {tab === 'Notifications' && t('appSettings.tabNotifications')}
               {tab === 'MCP' && t('appSettings.tabMcp')}
+              {tab === 'Remote' && t('appSettings.tabRemote')}
               {tab === 'Errors' && t('appSettings.tabErrors')}
             </button>
           ))}
@@ -261,6 +263,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           {activeTab === 'MCP' && (
             <div className="space-y-4">
               <McpSettingsSection />
+            </div>
+          )}
+
+          {activeTab === 'Remote' && (
+            <div className="space-y-4">
+              <RemoteAccess />
             </div>
           )}
 
