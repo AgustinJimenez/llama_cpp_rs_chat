@@ -30,7 +30,8 @@ interface SidebarProps {
   onNewChat: () => void;
 }
 
-// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer -- genuinely distinct UI states
+/* eslint-disable max-lines-per-function */
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- genuinely distinct UI states
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { t } = useTranslation();
   const {
@@ -106,12 +107,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     }
   };
 
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (connected) fetchConversations();
   }, [connected]);
 
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (currentConversationId && connected) fetchConversations();
   }, [currentConversationId, connected]);

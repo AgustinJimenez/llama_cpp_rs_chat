@@ -62,7 +62,7 @@ export const ConversationLog = () => {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // eslint-disable-next-line react-doctor/no-fetch-in-effect
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
   useEffect(() => {
     if (!currentConversationId || !isEventLogOpen) return;
 

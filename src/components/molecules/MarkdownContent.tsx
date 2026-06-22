@@ -1,4 +1,4 @@
-// eslint-disable-next-line react-doctor/prefer-dynamic-import
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import type { Chart as ChartInstance } from 'chart.js';
 import mermaid from 'mermaid';
 import React, { useEffect, useRef, useState, useCallback } from 'react';

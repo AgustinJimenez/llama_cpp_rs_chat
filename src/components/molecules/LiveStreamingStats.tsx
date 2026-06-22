@@ -66,7 +66,7 @@ export const LiveStreamingStats = ({
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- reset + periodic timer, separate concerns
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- reset + periodic timer, separate concerns
   useEffect(() => {
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
@@ -89,7 +89,7 @@ export const LiveStreamingStats = ({
     return () => clearInterval(id);
   }, []);
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- single setTokenStats per token update
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- single setTokenStats per token update
   useEffect(() => {
     if (tokensUsed === undefined) return;
     if (firstTokensUsedRef.current === null) {
@@ -105,7 +105,7 @@ export const LiveStreamingStats = ({
     setTokenStats((prev) => ({ ...prev, count: newCount }));
   }, [tokensUsed]);
 
-  /* eslint-disable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- setPolledStatus in branches */
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- setPolledStatus in branches
   useEffect(() => {
     if (streamStatus) {
       setPolledStatus(undefined);
@@ -126,7 +126,7 @@ export const LiveStreamingStats = ({
     const id = setInterval(poll, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [streamStatus]);
-  /* eslint-enable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect */
+  /* react-doctor-enable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect */
 
   const rawStatus = streamStatus || polledStatus;
   // Compaction progress is shown by CompactButton — filter it out of the inline status line.
@@ -188,7 +188,7 @@ const CompactButton = ({
   const compacting = isCompacting || isAutoCompacting;
 
   // Related compaction display state — reset together
-  // eslint-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- reset + interval, separate concerns
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- reset + interval, separate concerns
   useEffect(() => {
     if (!compacting) {
       setCompactState({ elapsedSec: 0, polledProgress: null });

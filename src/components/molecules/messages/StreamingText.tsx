@@ -20,7 +20,7 @@ interface StreamingTextProps {
 export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreaming }) => {
   const [isIdle, setIsIdle] = useState(false);
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
   useEffect(() => {
     if (!isStreaming) {
       setIsIdle(false);

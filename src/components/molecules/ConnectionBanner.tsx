@@ -17,7 +17,7 @@ export const ConnectionBanner: React.FC = () => {
   const { connected, reconnecting, attempt, disconnectedAt } = useConnection();
   const [elapsed, setElapsed] = useState('');
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
   useEffect(() => {
     if (!disconnectedAt) {
       setElapsed('');

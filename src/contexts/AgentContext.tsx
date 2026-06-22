@@ -144,7 +144,7 @@ interface AgentContextValue {
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
-// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct agent management states
+// react-doctor-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct agent management states
 export const AgentProvider = ({ children }: { children: ReactNode }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeConversationAgent, setActiveConversationAgent] = useState<Agent | null>(() =>

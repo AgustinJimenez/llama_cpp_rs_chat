@@ -619,7 +619,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     refreshRecords,
   } = useDownloadContext();
 
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (isOpen) {
       searchModels('');

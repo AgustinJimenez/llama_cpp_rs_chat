@@ -56,7 +56,7 @@ export const BrowserView = React.memo(() => {
   }, [isBrowserViewOpen, browserViewUrl, openBrowserView]);
 
   // Keep URL input + history in sync when external state changes
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- related navigation state
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- related navigation state
   useEffect(() => {
     if (!browserViewUrl) return;
     // External URL change (agent navigation) — navigate the panel
@@ -265,7 +265,7 @@ export const BrowserView = React.memo(() => {
     const LOADING_DISPLAY_MS = 3000;
     loadingTimerRef.current = setTimeout(() => setIsPageLoading(false), LOADING_DISPLAY_MS);
   };
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (browserViewUrl) showLoading();
     // eslint-disable-next-line react-hooks/exhaustive-deps

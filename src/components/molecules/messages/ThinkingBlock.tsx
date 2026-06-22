@@ -18,12 +18,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
   const [elapsed, setElapsed] = useState(0);
   const startTimeRef = useRef<number | null>(null);
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-effect-event-handler — single state, auto-open on stream
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-effect-event-handler — single state, auto-open on stream
   useEffect(() => {
     if (isStreaming) setIsOpen(true);
   }, [isStreaming]);
 
-  // eslint-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
   useEffect(() => {
     if (isStreaming) {
       if (startTimeRef.current === null) startTimeRef.current = Date.now();

@@ -84,13 +84,15 @@ const SectionHeader = ({
   </button>
 );
 
-/* eslint-disable max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer -- single cohesive provider selection modal */
+/* eslint-disable max-lines-per-function -- single cohesive provider selection modal */
+// react-doctor-disable-next-line react-doctor/no-giant-component -- single cohesive provider selection modal
 export const ProviderSelector = ({
   isOpen,
   onClose,
   onSelectLocal,
   onSelectRemote,
   currentProvider,
+  // react-doctor-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct states
 }: ProviderSelectorProps) => {
   const { t } = useTranslation();
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -182,7 +184,7 @@ export const ProviderSelector = ({
   }, []);
 
   // Multiple setState calls for independent UI state — genuinely separate concerns
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- separate concerns, same init trigger
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- separate concerns, same init trigger
   useEffect(() => {
     if (!isOpen) return;
     const cancelled = { v: false };
@@ -372,13 +374,13 @@ export const ProviderSelector = ({
                     ? 'border-border'
                     : 'border-border opacity-60';
                   if (currentProvider === provider.id) borderClass = 'border-primary bg-primary/10';
-                  // eslint-disable-next-line react-doctor/no-prevent-default -- SPA form submission
+                  // react-doctor-disable-next-line react-doctor/no-prevent-default -- SPA form submission
                   const handleCliFormSubmit = (e: React.FormEvent) => {
                     e.preventDefault();
                     const m = customModels[provider.id]?.trim();
                     if (m && provider.available) onSelectRemote(provider.id, m);
                   };
-                  /* eslint-enable max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer */
+                  /* react-doctor-enable max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer */
 
                   return (
                     <div
@@ -507,7 +509,7 @@ export const ProviderSelector = ({
                 if (currentProvider === provider.id) {
                   providerBorderClass = 'border-primary bg-primary/10';
                 }
-                // eslint-disable-next-line react-doctor/no-prevent-default -- SPA form submission
+                // react-doctor-disable-next-line react-doctor/no-prevent-default -- SPA form submission
                 const handleOpenAiFormSubmit = (e: React.FormEvent) => {
                   e.preventDefault();
                   const m = customModels[provider.id]?.trim();

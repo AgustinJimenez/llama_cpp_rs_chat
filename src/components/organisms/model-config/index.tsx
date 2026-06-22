@@ -42,12 +42,14 @@ interface ModelConfigModalProps {
   initialModelPath?: string;
 }
 
-/* eslint-disable max-lines-per-function, complexity, react-doctor/no-giant-component, react-doctor/prefer-useReducer -- genuinely distinct config states */
+/* eslint-disable max-lines-per-function, complexity -- genuinely distinct config states */
+// react-doctor-disable-next-line react-doctor/no-giant-component -- genuinely distinct config states
 export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   isOpen,
   onClose,
   onSave,
   initialModelPath,
+  // react-doctor-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct config states
 }) => {
   const { t } = useTranslation();
   const [config, setConfig] = useState<SamplerConfig>({
@@ -156,7 +158,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   // Initialize model path from config when modal opens
   // Reset and re-set modelPath when modal opens to force metadata re-fetch
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- reset then set, not cascading
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- reset then set, not cascading
   useEffect(() => {
     if (isOpen && initialModelPath) {
       setModelPath('');
@@ -165,7 +167,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [isOpen, initialModelPath]);
 
   // Fetch model history and saved config when modal opens
-  // eslint-disable-next-line react-doctor/no-cascading-set-state — separate async functions
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — separate async functions
   useEffect(() => {
     if (!isOpen) return;
 
@@ -205,7 +207,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     fetchSavedConfig();
   }, [isOpen]);
 
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (modelPath) {
       setConfig((prev) => ({
@@ -228,7 +230,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [modelInfo]);
 
   // Auto-apply recommended sampling parameters when model info loads
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- setConfig + setContextSize, separate concerns
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- setConfig + setContextSize, separate concerns
   useEffect(() => {
     if (!generalName && !recommendedParams) return;
 
@@ -275,7 +277,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   // Auto-enable mmproj when detected in model directory, clear on model change
   // Related mmproj state (enabled + path) — both updated together per branch
-  // eslint-disable-next-line react-doctor/no-cascading-set-state -- mmproj state, both together each branch
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- mmproj state, both together each branch
   useEffect(() => {
     if (modelInfo?.mmproj_files?.length) {
       setMmprojEnabled(true);
@@ -671,4 +673,4 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     </Dialog>
   );
 };
-/* eslint-enable max-lines-per-function, complexity, react-doctor/no-giant-component, react-doctor/prefer-useReducer */
+/* react-doctor-enable max-lines-per-function, complexity, react-doctor/no-giant-component, react-doctor/prefer-useReducer */
