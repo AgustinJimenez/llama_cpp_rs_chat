@@ -4,6 +4,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 
@@ -105,7 +106,8 @@ pub async fn server_main() -> std::io::Result<()> {
         let worker_pool = worker_pool.clone();
         let db = db.clone();
 
-        move |_conn| {
+        move |conn: &AddrStream| {
+            let peer_addr = conn.remote_addr();
             #[cfg(not(feature = "mock"))]
             let worker_pool = worker_pool.clone();
             let db = db.clone();
@@ -115,11 +117,11 @@ pub async fn server_main() -> std::io::Result<()> {
                     let db = db.clone();
                     #[cfg(not(feature = "mock"))]
                     {
-                        super::handle_request(req, worker_pool.clone(), db)
+                        super::handle_request(req, worker_pool.clone(), db, peer_addr)
                     }
                     #[cfg(feature = "mock")]
                     {
-                        super::handle_request(req, db)
+                        super::handle_request(req, db, peer_addr)
                     }
                 }))
             }

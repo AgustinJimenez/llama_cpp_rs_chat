@@ -19,6 +19,7 @@ pub async fn dispatch(
     #[cfg(not(feature = "mock"))] worker_pool: Option<WorkerPool>,
     #[cfg(feature = "mock")] _worker_bridge: Option<()>,
     db: SharedDatabase,
+    peer_addr: std::net::SocketAddr,
 ) -> std::result::Result<Response<Body>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -26,16 +27,8 @@ pub async fn dispatch(
     // Auth: non-localhost requests must carry a valid Bearer token.
     // Exempt: health check, static assets, CORS preflight, remote status (to show QR),
     //         and WebSocket upgrades (token passed in URL hash, validated on connect).
-    let is_local = req
-        .headers()
-        .get("x-forwarded-for")
-        .is_none()
-        && {
-            // Hyper doesn't expose the peer addr via headers; fall back to path-based exemption.
-            // In practice, the server binds to 0.0.0.0 so all local connections come from 127.0.0.1.
-            // We rely on the OS not routing external traffic to loopback.
-            false // conservatively treat every connection as potentially remote
-        };
+    let is_local = peer_addr.ip().is_loopback()
+        && req.headers().get("x-forwarded-for").is_none();
     // Paths that never need a token
     let auth_exempt = path == "/health"
         || path == "/api/remote/status"

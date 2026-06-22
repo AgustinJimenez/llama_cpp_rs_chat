@@ -29,16 +29,18 @@ async fn handle_request(
     req: Request<Body>,
     worker_pool: WorkerPool,
     db: SharedDatabase,
+    peer_addr: std::net::SocketAddr,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, Some(worker_pool), db).await
+    handle_request_impl(req, Some(worker_pool), db, peer_addr).await
 }
 
 #[cfg(feature = "mock")]
 async fn handle_request(
     req: Request<Body>,
     db: SharedDatabase,
+    peer_addr: std::net::SocketAddr,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, None, db).await
+    handle_request_impl(req, None, db, peer_addr).await
 }
 
 async fn handle_request_impl(
@@ -46,14 +48,15 @@ async fn handle_request_impl(
     #[cfg(not(feature = "mock"))] worker_pool: Option<WorkerPool>,
     #[cfg(feature = "mock")] _worker_bridge: Option<()>,
     db: SharedDatabase,
+    peer_addr: std::net::SocketAddr,
 ) -> std::result::Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        web::http_dispatch::dispatch(req, worker_pool, db).await
+        web::http_dispatch::dispatch(req, worker_pool, db, peer_addr).await
     }
     #[cfg(feature = "mock")]
     {
-        web::http_dispatch::dispatch(req, _worker_bridge, db).await
+        web::http_dispatch::dispatch(req, _worker_bridge, db, peer_addr).await
     }
 }
 
