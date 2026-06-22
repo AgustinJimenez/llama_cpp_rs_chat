@@ -21,7 +21,7 @@ use tool_defs_categories::{
 
 // ─── Verification helper (re-exported for tests) ────────────────────────────
 #[cfg(test)]
-pub const EXPECTED_TOOL_COUNT: usize = 145;
+pub const EXPECTED_TOOL_COUNT: usize = 146;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 //! System, process, audio, and OS-level tool definitions.
 
-use super::{p, Params, ToolDef};
+use super::{p, Params, RawParam, ToolDef};
 
 pub static SYSTEM_TOOLS: &[ToolDef] = &[
     // ─── git_status ───
@@ -314,5 +314,22 @@ pub static SYSTEM_TOOLS: &[ToolDef] = &[
         description: "Stop the background dialog handler and return the count of dialogs that were auto-handled.",
         params: Params::Simple(&[]),
         required: &[],
+    },
+    // ─── display_images ───
+    ToolDef {
+        name: "display_images",
+        description: "Display one or more images in the chat by URL. Use this when you find relevant images during research (photos, diagrams, screenshots, logos) to show them visually alongside your response. Images are rendered as a scrollable gallery in the tool result. Supports http/https URLs. Maximum 20 images.",
+        params: Params::Mixed(
+            &[p("title", "string", "Optional caption shown above the gallery")],
+            &[RawParam {
+                name: "urls",
+                build: || serde_json::json!({
+                    "type": "array",
+                    "description": "List of image URLs to display (http/https). Max 20.",
+                    "items": { "type": "string" }
+                }),
+            }],
+        ),
+        required: &["urls"],
     },
 ];

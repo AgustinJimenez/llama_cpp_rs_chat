@@ -150,6 +150,7 @@ const VALIDATED_TOOLS: &[&str] = &[
     "set_response_style",
     "insert_text",
     "undo_edit",
+    "display_images",
 ];
 
 fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), String> {
@@ -314,6 +315,30 @@ pub fn dispatch_native_tool(
         return Some(NativeToolResult::text_only(result));
     }
 
+    if name == "display_images" {
+        let urls: Vec<&str> = args
+            .get("urls")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(20).collect())
+            .unwrap_or_default();
+        if urls.is_empty() {
+            return Some(NativeToolResult::text_only(
+                "Error: 'urls' must be a non-empty array of image URLs".to_string(),
+            ));
+        }
+        let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        let n = urls.len();
+        let output = serde_json::json!({
+            "ok": true,
+            "urls": urls,
+            "title": title,
+            "count": n
+        });
+        return Some(NativeToolResult::text_only(format!(
+            "[DISPLAY_IMAGES]{}",
+            output
+        )));
+    }
     if name == "send_telegram" {
         return Some(NativeToolResult::text_only(telegram::tool_send_telegram(
             &args, db,

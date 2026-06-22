@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 const TOOL_SUMMARY_MAX_LENGTH = 80;
@@ -101,6 +102,11 @@ const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string
   git_commit: (args) => {
     const msg = String(args.message || '');
     return msg.length > 60 ? `${msg.slice(0, 60)}...` : msg;
+  },
+  display_images: (args) => {
+    const urls = Array.isArray(args.urls) ? (args.urls as string[]) : [];
+    const title = args.title ? ` — ${String(args.title)}` : '';
+    return `${urls.length} image${urls.length !== 1 ? 's' : ''}${title}`;
   },
 };
 
@@ -458,6 +464,72 @@ const EditFileDiff: React.FC<{ args: Record<string, unknown> }> = ({ args }) => 
   );
 };
 
+/** Gallery of images from a display_images tool result. */
+const ImageGallery: React.FC<{ output: string }> = ({ output }) => {
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  let urls: string[] = [];
+  let title = '';
+  try {
+    const parsed = JSON.parse(output) as { urls?: string[]; title?: string };
+    urls = Array.isArray(parsed.urls) ? parsed.urls : [];
+    title = parsed.title ?? '';
+  } catch {
+    return null;
+  }
+  if (urls.length === 0) return null;
+  return (
+    <div className="px-3 py-2">
+      {!!title && <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>}
+      <div className="flex flex-wrap gap-2">
+        {urls.map((src, i) => (
+          <button
+            key={i}
+            type="button"
+            className="overflow-hidden rounded-lg border border-border/50 transition-colors hover:border-primary/50"
+            onClick={() => setLightbox(src)}
+          >
+            <img
+              src={src}
+              alt={`Image ${i + 1}`}
+              className="h-32 w-auto max-w-[200px] object-cover"
+              loading="lazy"
+            />
+          </button>
+        ))}
+      </div>
+      {lightbox !== null &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex cursor-pointer items-center justify-center bg-black/95 p-4"
+            role="button"
+            tabIndex={0}
+            onClick={() => setLightbox(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' || e.key === 'Enter') setLightbox(null);
+            }}
+          >
+            <img
+              src={lightbox}
+              alt="Full size"
+              className="max-h-full max-w-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setLightbox(null)}
+              className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white backdrop-blur transition-colors hover:bg-white/30"
+              title="Close"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+};
+
 /** Detect syntax highlighting language for a tool's output. */
 function getOutputLanguage(name: string, args: Record<string, unknown> | string): string | null {
   if (typeof args !== 'object') return null;
@@ -486,9 +558,13 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   // Parse [TOOL_RESULT:success/error] tag from output
   const toolResultMatch = toolCall.output?.match(/^\[TOOL_RESULT:(success|error)\]/);
   const toolResultStatus = toolResultMatch?.[1] as 'success' | 'error' | undefined;
-  const cleanOutput = toolResultMatch
+  const rawAfterStatus = toolResultMatch
     ? (toolCall.output ?? '').slice(toolResultMatch[0].length)
     : toolCall.output;
+  // Parse [DISPLAY_IMAGES]{...json} emitted by the display_images tool
+  const displayImagesMatch = rawAfterStatus?.match(/^\[DISPLAY_IMAGES\](\{.*\})$/s);
+  const displayImagesJson = displayImagesMatch?.[1] ?? null;
+  const cleanOutput = displayImagesMatch ? null : rawAfterStatus;
   const hasOutput = !!cleanOutput && cleanOutput.length > 0;
   const isEditFile = toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object';
   const expandedContent = isEditFile ? (
@@ -533,6 +609,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
           isStreaming={isExecuting}
         />
       )}
+      {displayImagesJson !== null && <ImageGallery output={displayImagesJson} />}
     </div>
   );
 };
