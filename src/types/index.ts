@@ -174,13 +174,6 @@ export type SamplerType =
   | 'ChainTempTopK'
   | 'ChainFull';
 
-export interface FileItem {
-  name: string;
-  path: string;
-  is_directory: boolean;
-  size?: number;
-}
-
 export interface ModelMetadata {
   name: string;
   architecture: string;
