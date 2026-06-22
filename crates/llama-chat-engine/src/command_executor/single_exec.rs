@@ -9,7 +9,7 @@ use llama_chat_types::*;
 use crate::loop_detection;
 use crate::sub_agent::{run_sub_agent, try_extract_spawn_agent};
 use crate::tool_dispatch::{
-    rtk_prefix,
+    rtk_prefix, rtk_prefix_for_tool,
     detect_destructive_command,
     detect_command_injection,
     run_native_tool_with_timeout,
@@ -70,7 +70,7 @@ pub(crate) fn execute_single_call(
                 llama_chat_db::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
             }
 
-            let rtk_cmd = rtk_prefix(&cmd);
+            let rtk_cmd = rtk_prefix_for_tool(&cmd);
             if is_background {
                 log_info!(conversation_id, "🐚 Background execute_command: {}", rtk_cmd);
                 let sender_clone = token_sender.clone();

@@ -14,6 +14,26 @@ pub(crate) fn rtk_prefix(cmd: &str) -> String {
     llama_chat_command::rtk_prefix(cmd)
 }
 
+/// RTK-wrap only known dev tooling commands (git, cargo, npm, etc.).
+/// Skip commands with shell operators — RTK wrapping `cmd && cmd` breaks the chain.
+pub(crate) fn rtk_prefix_for_tool(cmd: &str) -> String {
+    const RTK_COMMANDS: &[&str] = &[
+        "git", "cargo", "npm", "npx", "pnpm", "yarn", "bun",
+        "tsc", "vitest", "playwright", "jest", "pytest",
+        "prettier", "eslint", "biome", "lint",
+        "docker", "kubectl", "gh",
+    ];
+    let has_shell_ops = cmd.contains("&&") || cmd.contains("||")
+        || cmd.contains(" | ") || cmd.contains(';')
+        || cmd.contains('>') || cmd.contains('<');
+    let first = cmd.split_whitespace().next().unwrap_or("");
+    if !has_shell_ops && RTK_COMMANDS.contains(&first) {
+        llama_chat_command::rtk_prefix(cmd)
+    } else {
+        cmd.to_string()
+    }
+}
+
 /// Check if a command is potentially destructive and return a warning.
 pub(crate) fn detect_destructive_command(cmd: &str) -> Option<&'static str> {
     let lower = cmd.to_lowercase();
@@ -249,7 +269,7 @@ pub(crate) fn execute_single_tool(
                 let timeout_secs = args.get("timeout").and_then(|v| {
                     v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 });
-                let rtk_cmd = rtk_prefix(cmd);
+                let rtk_cmd = rtk_prefix_for_tool(cmd);
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
