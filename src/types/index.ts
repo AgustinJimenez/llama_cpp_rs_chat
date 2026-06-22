@@ -260,15 +260,6 @@ export interface ModelMetadata {
 // Tool calling types
 export type ToolFormat = 'mistral' | 'llama3' | 'openai' | 'qwen' | 'unknown';
 
-// @ts-ignore -- kept for reference
-interface ToolParameter {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-  description: string;
-  required: boolean;
-  default?: string | number | boolean | null;
-}
-
 export interface ToolCall {
   id: string;
   name: string;

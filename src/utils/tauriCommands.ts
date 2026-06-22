@@ -71,19 +71,6 @@ export interface WorkersResponse {
   workers: WorkerSummary[];
 }
 
-interface FileItem {
-  name: string;
-  path: string;
-  is_directory: boolean;
-  size?: number;
-}
-
-interface BrowseFilesResponse {
-  files: FileItem[];
-  current_path: string;
-  parent_path?: string;
-}
-
 export interface SystemUsageData {
   cpu: number;
   gpu: number;
@@ -441,16 +428,6 @@ async function cancelGeneration(): Promise<void> {
     return;
   }
   await fetch('/api/chat/cancel', { method: 'POST' });
-}
-
-// ─── Files ────────────────────────────────────────────────────────────
-
-async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
-  if (isTauriEnv()) {
-    return invokeCmd<BrowseFilesResponse>('browse_files', path ? { path } : {});
-  }
-  const query = path ? `?path=${encodeURIComponent(path)}` : '';
-  return fetchJson<BrowseFilesResponse>(`/api/browse${query}`);
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────

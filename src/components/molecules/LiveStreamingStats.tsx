@@ -210,8 +210,9 @@ const CompactButton = ({
           const resp = await fetch('/api/model/status');
           if (resp.ok) {
             const data = await resp.json();
-            if (data.status_message)
+            if (data.status_message) {
               setCompactState((s) => ({ ...s, polledProgress: data.status_message }));
+            }
           }
         } catch {
           /* ignore */

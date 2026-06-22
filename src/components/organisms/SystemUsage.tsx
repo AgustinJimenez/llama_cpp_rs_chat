@@ -120,6 +120,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
   const ramUsedGb = (usage.ram / 100) * effectiveRamGb;
 
   const cpuHistory = history.map((h) => h.cpu);
+  const cpuGhzDisplay = cpuGhz > 0 ? `${cpuGhz.toFixed(2)} GHz` : undefined;
   const gpuHistory = history.map((h) => h.gpu);
   const ramHistory = history.map((h) => h.ram);
 
@@ -145,7 +146,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
             <LargeGraph
               data={cpuHistory}
               color="#3b82f6"
-              gbText={cpuGhz > 0 ? `${cpuGhz.toFixed(2)} GHz` : undefined}
+              gbText={cpuGhzDisplay}
             />
           </div>
         </div>
