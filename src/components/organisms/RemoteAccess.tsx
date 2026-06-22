@@ -6,6 +6,21 @@ import { getAuthHeaders } from '../../utils/remoteAuth';
 
 const TOKEN_COPIED_RESET_MS = 2000;
 
+/**
+ * Replace the port in a server-provided LAN URL with the port the browser
+ * is actually running on. This ensures the QR code works in dev (Vite :14000)
+ * and production (Rust :18080) without any special config.
+ */
+function adaptPort(serverUrl: string): string {
+  try {
+    const u = new URL(serverUrl);
+    u.port = window.location.port;
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return serverUrl;
+  }
+}
+
 function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers: { ...getAuthHeaders(), ...(init?.headers as Record<string, string> | undefined) } });
 }
@@ -47,7 +62,7 @@ export const RemoteAccess = (): JSX.Element => {
   const handleRegenerateToken = useCallback(() => {
     apiFetch('/api/remote/token/regenerate', { method: 'POST' })
       .then((r) => r.json() as Promise<{ token: string }>)
-      .then((data) => setStatus((s) => s ? { ...s, token: data.token, lan_qr: s.lan_url ? `${s.lan_url}#token=${data.token}` : null } : s))
+      .then((data) => setStatus((s) => s ? { ...s, token: data.token } : s))
       .catch(() => {});
   }, []);
 
@@ -81,8 +96,12 @@ export const RemoteAccess = (): JSX.Element => {
     return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
   }
 
-  const qrUrl = upnpResult?.public_qr ?? status?.lan_qr;
-  const displayUrl = upnpResult?.public_url ?? status?.lan_url;
+  // For LAN URLs: adapt port to match the current browser port so the QR code
+  // works in both dev (Vite :14000) and production (:18080).
+  const adaptedLanUrl = status?.lan_url ? adaptPort(status.lan_url) : null;
+  const adaptedLanQr = adaptedLanUrl && status?.token ? `${adaptedLanUrl}#token=${status.token}` : null;
+  const qrUrl = upnpResult?.public_qr ?? adaptedLanQr;
+  const displayUrl = upnpResult?.public_url ?? adaptedLanUrl;
   const copyLabel = tokenCopied ? t('common.copied') : t('common.copy');
   const upnpBtnLabel = upnpLoading ? t('common.loading') : t('remoteAccess.upnpEnable');
   const upnpErrorMsg = upnpResult?.error ?? t('remoteAccess.upnpFailed');
