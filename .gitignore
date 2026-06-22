@@ -115,3 +115,6 @@ people_data.json
 
 # Scratch markdown notes (auto-generated summaries)
 hn_*.md
+
+# Session working notes (never commit)
+CURRENT_TASK.md

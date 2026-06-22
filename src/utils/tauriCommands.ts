@@ -7,6 +7,7 @@ const SSE_DATA_PREFIX_LENGTH = 6;
 
 import type { Agent, SamplerConfig, ToolCall, ToolTags } from '../types';
 
+import { getAuthHeaders } from './remoteAuth';
 import { isTauriEnv } from './tauri';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -70,19 +71,6 @@ export interface WorkersResponse {
   workers: WorkerSummary[];
 }
 
-interface FileItem {
-  name: string;
-  path: string;
-  is_directory: boolean;
-  size?: number;
-}
-
-interface BrowseFilesResponse {
-  files: FileItem[];
-  current_path: string;
-  parent_path?: string;
-}
-
 export interface SystemUsageData {
   cpu: number;
   gpu: number;
@@ -129,7 +117,11 @@ async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promis
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const merged: RequestInit = {
+    ...init,
+    headers: { ...getAuthHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+  };
+  const response = await fetch(url, merged);
   if (!response.ok) {
     const text = await response.text().catch(() => response.statusText);
     // If the error body is JSON with a message field, surface just that string
@@ -358,9 +350,7 @@ export interface ConversationMetric {
   timestamp: number;
 }
 
-export async function getConversationMetrics(
-  conversationId: string,
-): Promise<ConversationMetric[]> {
+async function getConversationMetrics(conversationId: string): Promise<ConversationMetric[]> {
   const id = conversationId;
   if (isTauriEnv()) {
     return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
@@ -390,17 +380,17 @@ function assertWebWorkersAvailable(): void {
   }
 }
 
-export async function listWorkers(): Promise<WorkersResponse> {
+async function listWorkers(): Promise<WorkersResponse> {
   assertWebWorkersAvailable();
   return fetchJson<WorkersResponse>('/api/workers');
 }
 
-export async function getWorkerStatus(workerId: string): Promise<WorkerSummary> {
+async function getWorkerStatus(workerId: string): Promise<WorkerSummary> {
   assertWebWorkersAvailable();
   return fetchJson<WorkerSummary>(`/api/workers/${encodeURIComponent(workerId)}/status`);
 }
 
-export async function createWorker(request: {
+async function createWorker(request: {
   model_path: string;
   gpu_layers?: number;
   mmproj_path?: string;
@@ -413,12 +403,12 @@ export async function createWorker(request: {
   });
 }
 
-export async function deleteWorker(workerId: string): Promise<void> {
+async function deleteWorker(workerId: string): Promise<void> {
   assertWebWorkersAvailable();
   await fetchJson(`/api/workers/${encodeURIComponent(workerId)}`, { method: 'DELETE' });
 }
 
-export async function bindConversationWorker(
+async function bindConversationWorker(
   conversationId: string,
   workerId: string | null,
 ): Promise<void> {
@@ -432,7 +422,7 @@ export async function bindConversationWorker(
 
 // ─── Chat ─────────────────────────────────────────────────────────────
 
-export async function cancelGeneration(): Promise<void> {
+async function cancelGeneration(): Promise<void> {
   if (isTauriEnv()) {
     await invokeCmd('cancel_generation');
     return;
@@ -440,19 +430,9 @@ export async function cancelGeneration(): Promise<void> {
   await fetch('/api/chat/cancel', { method: 'POST' });
 }
 
-// ─── Files ────────────────────────────────────────────────────────────
-
-export async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
-  if (isTauriEnv()) {
-    return invokeCmd<BrowseFilesResponse>('browse_files', path ? { path } : {});
-  }
-  const query = path ? `?path=${encodeURIComponent(path)}` : '';
-  return fetchJson<BrowseFilesResponse>(`/api/browse${query}`);
-}
-
 // ─── Tools ────────────────────────────────────────────────────────────
 
-export async function executeTool(toolCall: ToolCall): Promise<Record<string, unknown>> {
+async function executeTool(toolCall: ToolCall): Promise<Record<string, unknown>> {
   if (isTauriEnv()) {
     return invokeCmd<Record<string, unknown>>('execute_tool', {
       request: {
@@ -471,7 +451,7 @@ export async function executeTool(toolCall: ToolCall): Promise<Record<string, un
   });
 }
 
-export async function webFetch(url: string, maxLength?: number): Promise<Record<string, unknown>> {
+async function webFetch(url: string, maxLength?: number): Promise<Record<string, unknown>> {
   if (isTauriEnv()) {
     return invokeCmd<Record<string, unknown>>('web_fetch', { url, maxLength });
   }
@@ -858,3 +838,16 @@ export async function killBackgroundProcess(pid: number): Promise<void> {
     body: JSON.stringify({ pid }),
   });
 }
+
+// Retained IPC wrappers (unused but preserved for documentation)
+void [
+  getConversationMetrics,
+  listWorkers,
+  getWorkerStatus,
+  createWorker,
+  deleteWorker,
+  bindConversationWorker,
+  cancelGeneration,
+  executeTool,
+  webFetch,
+];

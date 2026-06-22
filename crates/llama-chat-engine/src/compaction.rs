@@ -186,11 +186,27 @@ pub fn maybe_compact_conversation(
         to_compact.len(), old_text.len(), up_to_sequence
     );
 
-    // Summarize old messages using the model
+    // Load existing compaction summary (if any) for incremental update.
+    // We only feed the model the NEW (non-compacted) messages; the previous summary
+    // provides context for what happened before, so the model merges rather than re-derives.
+    let previous_summary: Option<String> = db
+        .get_compaction_summaries(conversation_id)
+        .ok()
+        .and_then(|mut v| v.pop())
+        .map(|r| r.summary_text);
+
+    if let Some(ref prev) = previous_summary {
+        eprintln!("[COMPACTION] Incremental mode: found previous summary ({} chars)", prev.len());
+    } else {
+        eprintln!("[COMPACTION] Full mode: no previous summary, summarizing from scratch");
+    }
+
+    // Summarize new messages (merging with previous summary if present)
     eprintln!("[COMPACTION] Running summarization on {} chars...", old_text.len());
     send_status(status_sender, "Compacting conversation...");
     let summary = match summarize_conversation(
-        model, backend, &old_text, chat_template_string, conversation_id, context_size, status_sender,
+        model, backend, &old_text, chat_template_string, conversation_id, context_size,
+        previous_summary.as_deref(), status_sender,
     ) {
         Ok(s) => {
             eprintln!("[COMPACTION] Summarization succeeded: {} chars → {} chars", old_text.len(), s.len());
@@ -282,6 +298,7 @@ fn summarize_conversation(
     chat_template_string: Option<&str>,
     conversation_id: &str,
     context_size: u32,
+    previous_summary: Option<&str>,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_pass_public;
@@ -305,7 +322,7 @@ fn summarize_conversation(
 
     if old_text.len() <= chunk_size_chars {
         send_status(status_sender, "Compacting conversation (0%)");
-        return run_summary_pass_public(model, backend, old_text, chat_template_string, conversation_id);
+        return run_summary_pass_public(model, backend, old_text, chat_template_string, conversation_id, previous_summary);
     }
 
     // Create ONE summary context, reuse for all chunks (avoids CUDA memory fragmentation)
@@ -314,7 +331,7 @@ fn summarize_conversation(
     let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;  // offload_kqv=true: KV cache on VRAM not CPU
     eprintln!("[COMPACTION] Created reusable summary context (n_ctx={summary_ctx}, kv_on_gpu=true)");
 
-    let result = summarize_with_ctx(model, &mut ctx, old_text, chunk_size_chars, chat_template_string, conversation_id, summary_ctx as usize, reserved as usize, status_sender);
+    let result = summarize_with_ctx(model, &mut ctx, old_text, chunk_size_chars, chat_template_string, conversation_id, summary_ctx as usize, reserved as usize, previous_summary, status_sender);
 
     // Drop the single context — only one alloc/free cycle
     drop(ctx);
@@ -324,6 +341,8 @@ fn summarize_conversation(
 }
 
 /// Inner map-reduce using a reusable context.
+/// `previous_summary` is injected only in the reduce phase so the final output merges
+/// the anchored history with the newly summarized content.
 #[allow(clippy::too_many_arguments)]
 fn summarize_with_ctx(
     model: &llama_cpp_2::model::LlamaModel,
@@ -334,11 +353,13 @@ fn summarize_with_ctx(
     conversation_id: &str,
     ctx_size: usize,
     max_tokens: usize,
+    previous_summary: Option<&str>,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_reusing_ctx;
 
-    // === MAP PHASE: split into chunks and summarize each ===
+    // === MAP PHASE: summarize each chunk without previous context ===
+    // (previous_summary is only injected in the reduce phase to avoid repeating it per chunk)
     let mut chunk_summaries = Vec::new();
     let mut pos = 0;
     let mut chunk_num = 0;
@@ -354,7 +375,7 @@ fn summarize_with_ctx(
 
         eprintln!("[COMPACTION] Map phase: chunk {chunk_num}/{total_chunks} ({} chars, chunk_size={chunk_size})...", chunk.len());
 
-        match run_summary_reusing_ctx(model, ctx, chunk, chat_template_string, conversation_id, ctx_size, max_tokens) {
+        match run_summary_reusing_ctx(model, ctx, chunk, chat_template_string, conversation_id, ctx_size, max_tokens, None) {
             Ok(summary) => {
                 eprintln!("[COMPACTION] Chunk {chunk_num} → {} chars", summary.len());
                 chunk_summaries.push(summary);
@@ -367,9 +388,9 @@ fn summarize_with_ctx(
                 eprintln!("[COMPACTION] Chunk {chunk_num} too large ({e}), splitting in half");
                 let mid = chunk.len() / 2;
                 let mid = (0..=mid).rev().find(|&i| chunk.is_char_boundary(i)).unwrap_or(mid);
-                let half1 = run_summary_reusing_ctx(model, ctx, &chunk[..mid], chat_template_string, conversation_id, ctx_size, max_tokens)
+                let half1 = run_summary_reusing_ctx(model, ctx, &chunk[..mid], chat_template_string, conversation_id, ctx_size, max_tokens, None)
                     .unwrap_or_else(|_| chunk[..mid.min(500)].to_string() + "...[truncated]");
-                let half2 = run_summary_reusing_ctx(model, ctx, &chunk[mid..], chat_template_string, conversation_id, ctx_size, max_tokens)
+                let half2 = run_summary_reusing_ctx(model, ctx, &chunk[mid..], chat_template_string, conversation_id, ctx_size, max_tokens, None)
                     .unwrap_or_else(|_| chunk[mid..].chars().take(500).collect::<String>() + "...[truncated]");
                 let combined = format!("{half1}\n{half2}");
                 eprintln!("[COMPACTION] Chunk {chunk_num} split → {} chars", combined.len());
@@ -380,15 +401,15 @@ fn summarize_with_ctx(
         pos = end;
     }
 
-    // === REDUCE PHASE ===
+    // === REDUCE PHASE: merge chunk summaries + inject previous_summary here ===
     let combined = chunk_summaries.join("\n\n");
     eprintln!("[COMPACTION] Reduce: {} chunk summaries ({} chars) → final...", chunk_summaries.len(), combined.len());
 
     if combined.len() <= chunk_size {
-        run_summary_reusing_ctx(model, ctx, &combined, chat_template_string, conversation_id, ctx_size, max_tokens)
+        run_summary_reusing_ctx(model, ctx, &combined, chat_template_string, conversation_id, ctx_size, max_tokens, previous_summary)
     } else {
-        // Combined summaries still too large — recurse (chunk_size is preserved)
-        summarize_with_ctx(model, ctx, &combined, chunk_size, chat_template_string, conversation_id, ctx_size, max_tokens, status_sender)
+        // Combined summaries still too large — recurse; carry previous_summary to the final reduce
+        summarize_with_ctx(model, ctx, &combined, chunk_size, chat_template_string, conversation_id, ctx_size, max_tokens, previous_summary, status_sender)
     }
 }
 
@@ -481,13 +502,21 @@ pub fn maybe_compact_mid_task(
         None => return None,
     };
 
+    // Load previous summary for incremental merge
+    let previous_summary: Option<String> = db
+        .get_compaction_summaries(conversation_id)
+        .ok()
+        .and_then(|mut v| v.pop())
+        .map(|r| r.summary_text);
+
     eprintln!(
-        "[COMPACTION] Mid-task: summarizing {} messages ({} chars)",
-        to_compact.len(), old_text.len()
+        "[COMPACTION] Mid-task: summarizing {} messages ({} chars){}",
+        to_compact.len(), old_text.len(),
+        if previous_summary.is_some() { " (incremental)" } else { "" }
     );
 
     // Summarize
-    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, context_size, None) {
+    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, context_size, previous_summary.as_deref(), None) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("[COMPACTION] Mid-task summarization failed: {e}");

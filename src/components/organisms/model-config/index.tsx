@@ -2,6 +2,7 @@
 import { Loader2, ChevronDown, ChevronRight, Eye, FolderOpen, CheckCircle } from 'lucide-react';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
@@ -41,13 +42,16 @@ interface ModelConfigModalProps {
   initialModelPath?: string;
 }
 
-// eslint-disable-next-line max-lines-per-function, complexity
+/* eslint-disable max-lines-per-function, complexity -- genuinely distinct config states */
+// react-doctor-disable-next-line react-doctor/no-giant-component -- genuinely distinct config states
 export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   isOpen,
   onClose,
   onSave,
   initialModelPath,
+  // react-doctor-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct config states
 }) => {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<SamplerConfig>({
     sampler_type: 'Greedy',
     temperature: 0.7,
@@ -154,6 +158,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   // Initialize model path from config when modal opens
   // Reset and re-set modelPath when modal opens to force metadata re-fetch
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- reset then set, not cascading
   useEffect(() => {
     if (isOpen && initialModelPath) {
       setModelPath('');
@@ -162,6 +167,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [isOpen, initialModelPath]);
 
   // Fetch model history and saved config when modal opens
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — separate async functions
   useEffect(() => {
     if (!isOpen) return;
 
@@ -201,6 +207,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     fetchSavedConfig();
   }, [isOpen]);
 
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (modelPath) {
       setConfig((prev) => ({
@@ -223,6 +230,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [modelInfo]);
 
   // Auto-apply recommended sampling parameters when model info loads
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- setConfig + setContextSize, separate concerns
   useEffect(() => {
     if (!generalName && !recommendedParams) return;
 
@@ -268,6 +276,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [generalName, recommendedParams]);
 
   // Auto-enable mmproj when detected in model directory, clear on model change
+  // Related mmproj state (enabled + path) — both updated together per branch
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- mmproj state, both together each branch
   useEffect(() => {
     if (modelInfo?.mmproj_files?.length) {
       setMmprojEnabled(true);
@@ -321,29 +331,29 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   const handleSave = () => {
     if (!modelPath.trim()) {
-      toast.error('Please select a model file or enter a model path.');
+      toast.error(t('modelConfig.modelFileRequired'));
       return;
     }
 
     if (fileExists === false) {
-      toast.error('The specified file does not exist or is not accessible.');
+      toast.error(t('modelConfig.fileNotFound'));
       return;
     }
 
     if (config.temperature < 0 || config.temperature > 2) {
-      toast.error('Temperature must be between 0.0 and 2.0');
+      toast.error(t('modelConfig.temperatureError'));
       return;
     }
     if (config.top_p < 0 || config.top_p > 1) {
-      toast.error('Top P must be between 0.0 and 1.0');
+      toast.error(t('modelConfig.topPError'));
       return;
     }
     if ((config.top_k as number) < 0) {
-      toast.error('Top K must be non-negative');
+      toast.error(t('modelConfig.topKError'));
       return;
     }
     if (contextSize <= 0) {
-      toast.error('Context size must be positive');
+      toast.error(t('modelConfig.contextSizeError'));
       return;
     }
 
@@ -390,13 +400,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     const detectedTags = modelInfo?.detected_tool_tags;
     if (detectedTags && detectedTags.exec_open === '<||SYSTEM.EXEC>') {
       setTimeout(() => {
-        toast(
-          'Tool call format not detected for this model. Using default format — this may affect agentic tasks.',
-          {
-            icon: '\u26A0\uFE0F',
-            duration: 6000,
-          },
-        );
+        toast(t('modelConfig.toolFormatWarning'), {
+          icon: '\u26A0\uFE0F',
+          duration: 6000,
+        });
       }, TOAST_DELAY_MS); // Delay so it appears after the "loaded successfully" toast
     }
 
@@ -419,19 +426,21 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   };
 
   const getModelFileName = () => {
-    if (!modelPath) return 'No model selected';
+    if (!modelPath) return t('modelConfig.noModelSelected');
     const fileName = modelPath.split('/').pop() || modelPath;
     return fileName;
   };
   const dialogDescription = modelPath
-    ? `Model: ${getModelFileName()}`
-    : 'Select a model file to load';
+    ? t('modelConfig.modelPrefix', { name: getModelFileName() })
+    : t('modelConfig.selectModelFile');
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="flex h-[90vh] max-h-[90vh] w-[95vw] max-w-7xl flex-col p-0">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="flex items-center gap-2">Load Model</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {t('modelConfig.loadModel')}
+          </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             {dialogDescription}
           </DialogDescription>
@@ -441,7 +450,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           {/* Model File Selection */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Model File Selection</CardTitle>
+              <CardTitle className="text-sm">{t('modelConfig.modelFileSelection')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <ModelFileInput
@@ -462,8 +471,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
+                      <Loader2 className="size-4 animate-spin" />
+                      <p className="text-sm text-muted-foreground">
+                        {t('modelConfig.readingGgufMetadata')}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -487,10 +498,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                           setMmprojPath(modelInfo.mmproj_files[0].path);
                         }
                       }}
-                      className="h-3.5 w-3.5"
+                      className="size-3.5"
                     />
-                    <Eye className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">Vision Projector (mmproj)</span>
+                    <Eye className="size-4 text-muted-foreground" />
+                    <span className="font-medium">{t('modelConfig.visionProjector')}</span>
                   </label>
 
                   {!!mmprojEnabled && (
@@ -506,19 +517,19 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                             mmprojPath ? 'border-green-500/50' : 'border-input'
                           } cursor-pointer transition-colors hover:bg-accent/50`}
                         >
-                          <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          <FolderOpen className="size-3.5 flex-shrink-0 text-muted-foreground" />
                           {!!mmprojPath && (
                             <span className="truncate font-mono text-xs">{mmprojPath}</span>
                           )}
                           {!mmprojPath && (
                             <span className="text-xs text-muted-foreground">
-                              Click to select mmproj .gguf file...
+                              {t('modelConfig.selectMmprojFile')}
                             </span>
                           )}
                         </button>
                         {!!mmprojPath && (
                           <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
-                            <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                            <CheckCircle className="size-3.5 text-green-500" />
                           </div>
                         )}
                       </div>
@@ -529,14 +540,19 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                         if (autoFile) {
                           return (
                             <p className="text-xs text-muted-foreground">
-                              Auto-detected: {autoFile.name} ({autoFile.file_size})
+                              {t('modelConfig.autoDetected', {
+                                name: autoFile.name,
+                                size: autoFile.file_size,
+                              })}
                             </p>
                           );
                         }
                         if (mmprojPath) {
                           return (
                             <p className="text-xs text-muted-foreground">
-                              Custom: {mmprojPath.split(/[\\/]/).pop()}
+                              {t('modelConfig.customFile', {
+                                name: mmprojPath.split(/[\\/]/).pop(),
+                              })}
                             </p>
                           );
                         }
@@ -563,13 +579,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   data-testid="config-expand-button"
                 >
                   <CardTitle className="flex items-center gap-2 text-sm text-white">
-                    {!!isConfigExpanded && (
-                      <ChevronDown className="h-5 w-5 stroke-[3] text-white" />
-                    )}
-                    {!isConfigExpanded && (
-                      <ChevronRight className="h-5 w-5 stroke-[3] text-white" />
-                    )}
-                    Model Configurations
+                    {!!isConfigExpanded && <ChevronDown className="size-5 stroke-[3] text-white" />}
+                    {!isConfigExpanded && <ChevronRight className="size-5 stroke-[3] text-white" />}
+                    {t('common.modelConfigurations')}
                   </CardTitle>
                 </button>
               </CardHeader>
@@ -635,16 +647,16 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
         <DialogFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           {(() => {
             const buttonContent = isCheckingFile ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Reading file...
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                {t('modelConfig.readingFile')}
               </>
             ) : (
-              'Load Model'
+              t('modelConfig.loadModel')
             );
             return (
               <Button
@@ -661,3 +673,4 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     </Dialog>
   );
 };
+/* react-doctor-enable max-lines-per-function, complexity, react-doctor/no-giant-component, react-doctor/prefer-useReducer */

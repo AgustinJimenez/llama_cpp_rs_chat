@@ -25,17 +25,17 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
   defaultExpanded = true,
   freeLayout,
 }) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(() => defaultExpanded);
   const collapseChevron = expanded ? (
-    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+    <ChevronDown className="size-3.5 text-muted-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+    <ChevronRight className="size-3.5 text-muted-foreground" />
   );
   const titleEl = collapsible ? (
     <button
       type="button"
       className="flex w-full items-center justify-between text-left"
-      onClick={() => setExpanded(!expanded)}
+      onClick={() => setExpanded((v) => !v)}
     >
       <span className="text-xs font-medium">{title}</span>
       {collapseChevron}

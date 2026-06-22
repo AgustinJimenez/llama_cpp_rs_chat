@@ -20,3 +20,4 @@ pub mod app_errors;
 pub mod agent_heartbeat;
 pub mod agents;
 pub mod openai_compat_server;
+pub mod remote;

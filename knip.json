@@ -1,0 +1,9 @@
+{
+  "ignore": [
+    "deps/**",
+    "src/web/**",
+    "target/**"
+  ],
+  "ignoreDependencies": [],
+  "ignoreExportsUsedInFile": true
+}

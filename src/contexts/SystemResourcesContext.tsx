@@ -54,15 +54,16 @@ const SystemResourcesContext = createContext<SystemResourcesValue>({
   setMonitorActive: () => {},
 });
 
-// eslint-disable-next-line max-lines-per-function
 export const SystemResourcesProvider = ({ children }: { children: ReactNode }) => {
   // Defaults are 0, not arbitrary "common" sizes — the VRAM optimizer relies on
   // a real 0 to detect "no GPU" and fall back to CPU-only mode. A 24 GB default
   // would silently make the optimizer try to load all layers on a non-existent GPU.
-  const [totalVramGb, setTotalVramGb] = useState(0);
-  const [totalRamGb, setTotalRamGb] = useState(0);
-  const [unifiedMemory, setUnifiedMemory] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [hardware, setHardware] = useState({
+    totalVramGb: 0,
+    totalRamGb: 0,
+    unifiedMemory: false,
+    ready: false,
+  });
   const [usage, setUsage] = useState<UsageData>(defaultUsage);
   const [history, setHistory] = useState<UsageData[]>([]);
   const [hasData, setHasData] = useState(false);
@@ -93,18 +94,16 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
       // forever, breaking the memory visualization. We use the backend's value
       // verbatim (including 0) so the VRAM optimizer can distinguish "no GPU"
       // from "still detecting" — but we keep updating until non-zero arrives.
-      if (typeof data.total_vram_gb === 'number') {
-        setTotalVramGb(data.total_vram_gb);
-      }
-      if (typeof data.total_ram_gb === 'number' && data.total_ram_gb > 0) {
-        setTotalRamGb(data.total_ram_gb);
-      }
-      if (typeof data.unified_memory === 'boolean') {
-        setUnifiedMemory(data.unified_memory);
-      }
-      if (!ready) {
-        setReady(true);
-      }
+      setHardware((prev) => ({
+        totalVramGb: typeof data.total_vram_gb === 'number' ? data.total_vram_gb : prev.totalVramGb,
+        totalRamGb:
+          typeof data.total_ram_gb === 'number' && data.total_ram_gb > 0
+            ? data.total_ram_gb
+            : prev.totalRamGb,
+        unifiedMemory:
+          typeof data.unified_memory === 'boolean' ? data.unified_memory : prev.unifiedMemory,
+        ready: true,
+      }));
     } catch (error) {
       const isAbort =
         error instanceof DOMException &&
@@ -112,11 +111,11 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
       if (!isAbort) {
         console.error('Failed to fetch system usage:', error);
       }
-      if (!ready) setReady(true);
+      setHardware((prev) => ({ ...prev, ready: true }));
     } finally {
       isFetchingRef.current = false;
     }
-  }, [ready]);
+  }, []);
 
   // Start background polling on mount
   useEffect(() => {
@@ -144,16 +143,13 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
 
   const value = useMemo<SystemResourcesValue>(
     () => ({
-      totalVramGb,
-      totalRamGb,
-      unifiedMemory,
-      ready,
+      ...hardware,
       usage,
       history,
       hasData,
       setMonitorActive,
     }),
-    [totalVramGb, totalRamGb, unifiedMemory, ready, usage, history, hasData, setMonitorActive],
+    [hardware, usage, history, hasData, setMonitorActive],
   );
 
   return (

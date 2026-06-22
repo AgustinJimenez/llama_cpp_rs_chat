@@ -1,0 +1,32 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "overrides": [
+      {
+        "files": ["src/components/organisms/MessageBubble.tsx"],
+        "rules": [
+          "react-doctor/no-array-index-key",
+          "react-doctor/no-many-boolean-props",
+          "react-doctor/rerender-state-only-in-handlers"
+        ]
+      },
+      {
+        "files": ["src/components/organisms/BackgroundProcessesModal.tsx"],
+        "rules": ["react-doctor/no-array-index-key"]
+      },
+      {
+        "files": ["src/components/organisms/ProviderSelector.tsx"],
+        "rules": ["react-doctor/no-prevent-default"]
+      },
+      {
+        "files": ["src/components/molecules/LiveStreamingStats.tsx"],
+        "rules": ["react-doctor/rerender-state-only-in-handlers"]
+      }
+    ],
+    "rules": ["react-doctor/no-prevent-default"]
+  },
+  "rules": {
+    "react-doctor/no-array-index-key": "warn",
+    "react-doctor/no-prevent-default": "off"
+  }
+}

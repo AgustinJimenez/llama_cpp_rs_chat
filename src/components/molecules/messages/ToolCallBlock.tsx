@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const TOOL_SUMMARY_MAX_LENGTH = 80;
 const DEACTIVATE_DEBOUNCE_MS = 2000;
@@ -140,6 +141,7 @@ function useElapsedTime(isActive: boolean): number {
   const [elapsed, setElapsed] = React.useState(0);
   const deactivateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-effect-event-handler -- single state, conditional branches
   React.useEffect(() => {
     if (isActive) {
       // Cancel any pending deactivation
@@ -230,17 +232,18 @@ const ExecutingHeader: React.FC<{
   isExpanded: boolean;
   onToggle: () => void;
 }> = ({ name, summary, elapsed, isExpanded, onToggle }) => {
+  const { t } = useTranslation();
   const elapsedStr = formatElapsed(elapsed);
   const isDesktop = DESKTOP_TOOLS.has(name);
   const execChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   return (
     <div className="flex w-full items-center gap-2 bg-muted px-3 py-2 transition-colors hover:bg-accent">
       <button onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="inline-block h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
+        <span className="inline-block size-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
         <span className="whitespace-nowrap text-xs font-medium text-foreground">
           {formatToolName(name)}
           {!!elapsedStr && ` (${elapsedStr})`}
@@ -255,10 +258,10 @@ const ExecutingHeader: React.FC<{
             fetch('/api/desktop/abort', { method: 'POST' }).catch(() => {});
           }}
           className="flex flex-shrink-0 items-center gap-1 rounded bg-destructive/20 px-2 py-0.5 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/40"
-          title="Abort desktop automation"
+          title={t('toolCallBlock.abortDesktop')}
         >
-          <Square className="h-2.5 w-2.5 fill-current" />
-          Abort
+          <Square className="size-2.5 fill-current" />
+          {t('toolCallBlock.abort')}
         </button>
       )}
     </div>
@@ -280,9 +283,9 @@ const CompletedHeader: React.FC<{
     else durationStr = `${(durationMs / 1000).toFixed(1)}s`;
   }
   const completedChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   const isError = resultStatus === 'error';
   const buttonBgClass = isError ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted';
@@ -295,7 +298,7 @@ const CompletedHeader: React.FC<{
     >
       {!!resultStatus && (
         <span
-          className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotClass}`}
+          className={`size-2 flex-shrink-0 rounded-full ${statusDotClass}`}
           title={statusTitle}
         />
       )}
@@ -326,6 +329,7 @@ const ScrollableOutput: React.FC<{
   }, [output, isStreaming]);
 
   // Reset user-scrolled flag when streaming starts
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (isStreaming) userScrolledRef.current = false;
   }, [isStreaming]);
@@ -382,10 +386,11 @@ const CompletedOutput: React.FC<{
   language?: string | null;
   isStreaming?: boolean;
 }> = ({ output, isExpanded, onToggle, language, isStreaming }) => {
+  const { t } = useTranslation();
   const outputChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   return (
     <>
@@ -393,7 +398,7 @@ const CompletedOutput: React.FC<{
         onClick={onToggle}
         className="flex w-full items-center gap-2 border-t border-border bg-muted px-3 py-1.5 text-left transition-colors hover:bg-accent"
       >
-        <span className="text-xs font-medium text-foreground">Output</span>
+        <span className="text-xs font-medium text-foreground">{t('toolCallBlock.output')}</span>
         <span className="flex-1 truncate text-xs text-foreground">
           {(() => {
             if (isStreaming) return 'Streaming...';

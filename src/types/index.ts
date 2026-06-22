@@ -59,13 +59,6 @@ export interface ChatRequest {
   reconnect?: boolean;
 }
 
-export interface ChatResponse {
-  message: Message;
-  conversation_id: string;
-  tokens_used?: number;
-  max_tokens?: number;
-}
-
 export interface SamplerConfig {
   sampler_type: string;
   temperature: number;
@@ -193,19 +186,6 @@ export type SamplerType =
   | 'ChainTempTopK'
   | 'ChainFull';
 
-export interface FileItem {
-  name: string;
-  path: string;
-  is_directory: boolean;
-  size?: number;
-}
-
-export interface BrowseFilesResponse {
-  files: FileItem[];
-  current_path: string;
-  parent_path?: string;
-}
-
 export interface ModelMetadata {
   name: string;
   architecture: string;
@@ -292,20 +272,6 @@ export interface ModelMetadata {
 // Tool calling types
 export type ToolFormat = 'mistral' | 'llama3' | 'openai' | 'qwen' | 'unknown';
 
-export interface ToolParameter {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-  description: string;
-  required: boolean;
-  default?: string | number | boolean | null;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: ToolParameter[];
-}
-
 export interface ToolCall {
   id: string;
   name: string;
@@ -316,18 +282,6 @@ export interface ToolCall {
   isPending?: boolean;
   /** Persisted execution time in ms (only set when loaded from a completed conversation). */
   duration_ms?: number;
-}
-
-export interface ToolTiming {
-  name: string;
-  duration_ms: number;
-}
-
-export interface ToolResult {
-  id: string;
-  name: string;
-  result: string;
-  error?: string;
 }
 
 export type ViewMode = 'text' | 'markdown' | 'raw';

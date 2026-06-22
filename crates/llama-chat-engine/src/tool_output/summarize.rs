@@ -112,25 +112,31 @@ pub(crate) fn run_summary_pass(
 }
 
 pub(crate) const COMPACT_SYSTEM_PROMPT: &str = "\
-Summarize this conversation so work can resume seamlessly. \
-This summary is the ONLY context available — be complete and precise.
+You are an anchored context summarization assistant for coding sessions.
+
+If the input includes a <previous-summary> block, treat it as the current anchored summary and UPDATE it \
+with the new conversation history that follows: preserve still-true details, remove stale details, \
+merge in new facts. If there is no <previous-summary>, summarize only what you are given.
+
+The newest turns may be kept verbatim outside your summary — focus on older context that still matters.
 
 Rules:
-- Plain text only. No markdown: no headers (#), no bold (**), no italics, no code fences.
-- Start directly with the content. No preamble like 'Here is a summary...'.
-- No raw code snippets or file contents — describe what things do and why.
-- CRITICAL: This summary represents REAL actions already taken. Any task listed as complete must NOT be repeated.
+- Terse bullets over paragraphs. Plain text only — no markdown headers, bold, or code fences.
+- Start directly with content. No preamble like 'Here is a summary...'.
+- No raw code snippets — describe what things do and why.
+- CRITICAL: completed tasks must NOT be listed as pending. Any action listed as done must not be repeated.
+- Respond in the same language as the conversation.
 
-Cover these areas in order:
-1. Primary Request and Intent: what the user asked for, all goals and sub-goals.
-2. Task Completion Status: EXPLICITLY state 'COMPLETE', 'IN PROGRESS', or 'NOT STARTED' for every goal. List every tool call made (function name, result summary) to prove real execution happened.
-3. Key Technical Concepts: technologies, frameworks, architecture decisions and why.
-4. Files and Code Sections: every file created or edited, what changed and why.
-5. Errors and Fixes: every error, its root cause, and how it was fixed.
-6. Problem Solving: approaches tried, decisions made, trade-offs, open issues.
-7. Pending Tasks: tasks requested but not yet completed.
-8. Current Work: exactly what was in progress at compaction time.
-9. Next Step: the immediate next action to continue. If the primary task is COMPLETE, say so explicitly.";
+Structure (keep every section, use bullet points):
+1. Primary Request and Intent — what the user asked for, all goals.
+2. Task Completion Status — COMPLETE / IN PROGRESS / NOT STARTED for every goal.
+3. Key Technical Concepts — technologies, architecture decisions, why.
+4. Files and Code Sections — every file created or edited, what changed.
+5. Errors and Fixes — every error, root cause, fix.
+6. Problem Solving — approaches tried, decisions, trade-offs, open issues.
+7. Pending Tasks — requested but not yet done.
+8. Current Work — exactly what was in progress at compaction time.
+9. Next Step — immediate next action. If primary task is COMPLETE, say so explicitly.";
 
 /// Public entry point for conversation compaction summarization.
 pub fn run_summary_pass_public(
@@ -139,13 +145,25 @@ pub fn run_summary_pass_public(
     text: &str,
     chat_template_string: Option<&str>,
     conversation_id: &str,
+    previous_summary: Option<&str>,
 ) -> Result<String, String> {
+    let user_content = build_user_content(text, previous_summary);
     run_summary_pass_with_system(
-        model, backend, text, chat_template_string, conversation_id,
+        model, backend, &user_content, chat_template_string, conversation_id,
         COMPACT_SYSTEM_PROMPT,
         COMPACT_SUMMARY_CTX_SIZE,
         COMPACT_SUMMARY_MAX_TOKENS,
     )
+}
+
+/// Wrap new history with optional previous summary block for incremental compaction.
+fn build_user_content(new_text: &str, previous_summary: Option<&str>) -> String {
+    match previous_summary {
+        Some(prev) if !prev.trim().is_empty() => {
+            format!("<previous-summary>\n{prev}\n</previous-summary>\n\nNew conversation history to merge:\n{new_text}")
+        }
+        _ => new_text.to_string(),
+    }
 }
 
 /// Run a summary pass with a custom system message.
@@ -254,9 +272,11 @@ pub fn run_summary_reusing_ctx(
     conversation_id: &str,
     ctx_size: usize,
     max_tokens: usize,
+    previous_summary: Option<&str>,
 ) -> Result<String, String> {
+    let user_content = build_user_content(text, previous_summary);
     run_summary_reusing_ctx_with_system(
-        model, ctx, text, chat_template_string, conversation_id,
+        model, ctx, &user_content, chat_template_string, conversation_id,
         COMPACT_SYSTEM_PROMPT,
         ctx_size,
         max_tokens,

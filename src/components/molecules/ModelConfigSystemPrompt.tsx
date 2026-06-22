@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type SystemPromptMode = 'system' | 'custom';
 
@@ -46,17 +47,18 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
   customSystemPrompt,
   setCustomSystemPrompt,
 }) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const expandIcon = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5" />
+    <ChevronDown className="size-3.5" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5" />
+    <ChevronRight className="size-3.5" />
   );
 
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium">System Prompt</span>
+        <span className="text-xs font-medium">{t('modelConfig.systemPrompt')}</span>
         <div className="flex overflow-hidden rounded-full border border-input">
           <button
             type="button"
@@ -67,7 +69,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
             }`}
             onClick={() => setSystemPromptMode('system')}
           >
-            Agentic
+            {t('modelConfig.agenticMode')}
           </button>
           <button
             type="button"
@@ -78,7 +80,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
             }`}
             onClick={() => setSystemPromptMode('custom')}
           >
-            Custom
+            {t('modelConfig.customMode')}
           </button>
         </div>
         <button

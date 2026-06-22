@@ -246,6 +246,29 @@ impl Database {
         self.save_config(config)
     }
 
+    /// Get the remote access token (Bearer auth for non-localhost clients).
+    pub fn get_remote_access_token(&self) -> Option<String> {
+        let conn = self.connection();
+        conn.query_row(
+            "SELECT remote_access_token FROM config WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten()
+    }
+
+    /// Set the remote access token.
+    pub fn set_remote_access_token(&self, token: &str) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE config SET remote_access_token = ?1 WHERE id = 1",
+            [token],
+        )
+        .map_err(db_error("set remote access token"))?;
+        Ok(())
+    }
+
     /// Add model to history (MRU list)
     pub fn add_to_model_history(&self, model_path: &str) -> Result<(), String> {
         let conn = self.connection();

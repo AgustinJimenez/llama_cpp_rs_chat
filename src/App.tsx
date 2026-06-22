@@ -197,6 +197,7 @@ export const App = () => {
               <>
                 {icon}
                 {message}
+                {/* eslint-disable i18next/no-literal-string */}
                 {t.type === 'error' && (
                   <button
                     onClick={() => toast.dismiss(t.id)}
@@ -206,6 +207,7 @@ export const App = () => {
                     ✕
                   </button>
                 )}
+                {/* eslint-enable i18next/no-literal-string */}
               </>
             )}
           </ToastBar>
@@ -319,6 +321,7 @@ const MainContent = ({
       className="ml-0 flex-1 md:ml-[var(--sidebar-w)]"
       style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
     >
+      {/* eslint-disable-next-line i18next/no-literal-string */}
       <h1 className="sr-only">LLaMA Chat</h1>
       <div className="flex h-full flex-col">
         <ConnectionBanner />
@@ -352,7 +355,7 @@ const MainContent = ({
             title="Toggle sidebar"
             aria-label="Toggle sidebar"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="size-5" />
           </button>
         )}
 
@@ -369,7 +372,7 @@ const MainContent = ({
                     onClick={openAgentSelector}
                     className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
-                    <Bot className="h-3 w-3" />
+                    <Bot className="size-3" />
                     {conversationAgent.name}
                   </button>
                 )}
@@ -393,7 +396,7 @@ const MainContent = ({
                       onClick={openAgentSelector}
                       className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                      <Bot className="h-3 w-3" />
+                      <Bot className="size-3" />
                       {conversationAgent.name}
                     </button>
                   )}

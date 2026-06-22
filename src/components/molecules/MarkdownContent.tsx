@@ -1,7 +1,9 @@
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import type { Chart as ChartInstance } from 'chart.js';
 import mermaid from 'mermaid';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +68,7 @@ interface MarkdownContentProps {
 
 /** Renders a mermaid diagram from source code. */
 const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +117,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   if (error) {
     return (
       <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
-        <div className="mb-1 font-medium text-red-400">Mermaid Error</div>
+        <div className="mb-1 font-medium text-red-400">{t('markdown.mermaidError')}</div>
         <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
         <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{code}</pre>
       </div>
@@ -124,7 +127,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   if (!svg) {
     return (
       <div className="my-2 animate-pulse rounded bg-muted p-4 text-sm text-muted-foreground">
-        Rendering diagram...
+        {t('markdown.renderingDiagram')}
       </div>
     );
   }
@@ -135,6 +138,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
         ref={containerRef}
         className="w-full overflow-x-auto rounded-lg bg-muted/50 p-4 dark:bg-[#1a1a2e] [&_.edgeLabel]:!text-gray-700 dark:[&_.edgeLabel]:!text-gray-200 [&_.flowchart-link]:!stroke-gray-400 [&_.label]:!text-gray-900 [&_.nodeLabel]:!text-gray-900 [&_text]:!fill-gray-700 dark:[&_text]:!fill-gray-200"
         style={{ ['--mermaid-node-text' as string]: '#1a202c' }}
+        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: svg }}
       />
     </ExpandableBlock>
@@ -166,6 +170,7 @@ function exportChartCsv(code: string) {
 
 /** Chart.js-powered data chart from JSON spec. */
 const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,7 +294,7 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   if (error) {
     return (
       <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
-        <div className="mb-1 font-medium text-red-400">Chart Error</div>
+        <div className="mb-1 font-medium text-red-400">{t('markdown.chartError')}</div>
         <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
       </div>
     );
@@ -422,10 +427,10 @@ const MarkdownP = ({ children }: { children?: React.ReactNode }) => (
   <p className="my-2 [overflow-wrap:anywhere]">{children}</p>
 );
 const MarkdownH1 = ({ children }: { children?: React.ReactNode }) => (
-  <h1 className="my-3 border-b border-border pb-2 text-2xl font-bold">{children}</h1>
+  <h1 className="my-3 border-b border-border pb-2 text-2xl font-semibold">{children}</h1>
 );
 const MarkdownH2 = ({ children }: { children?: React.ReactNode }) => (
-  <h2 className="my-3 border-b border-border pb-2 text-xl font-bold">{children}</h2>
+  <h2 className="my-3 border-b border-border pb-2 text-xl font-semibold">{children}</h2>
 );
 const MarkdownH3 = ({ children }: { children?: React.ReactNode }) => (
   <h3 className="my-2 text-lg font-semibold">{children}</h3>
@@ -444,7 +449,9 @@ const MarkdownEm = ({ children }: { children?: React.ReactNode }) => (
   <em className="italic">{children}</em>
 );
 const MarkdownBlockquote = ({ children }: { children?: React.ReactNode }) => (
-  <blockquote className="my-2 border-l-4 border-border pl-4 italic">{children}</blockquote>
+  <blockquote className="my-2 border-l-2 border-muted-foreground/30 bg-muted/20 pl-4 italic">
+    {children}
+  </blockquote>
 );
 
 const markdownComponents: Components = {

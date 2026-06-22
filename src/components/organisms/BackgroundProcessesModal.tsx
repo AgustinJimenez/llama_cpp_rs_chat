@@ -1,5 +1,6 @@
 import { Terminal, X, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const SECONDS_PER_HOUR = 3600;
 const MODAL_POLL_INTERVAL_MS = 3000;
@@ -38,13 +39,14 @@ function formatElapsed(startedAt: number): string {
 }
 
 function truncateCommand(cmd: string, maxLen = 60): string {
-  return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}…` : cmd;
+  return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}...` : cmd;
 }
 
 const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => {
+  const { t } = useTranslation();
   const [lines, setLines] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const autoScrollRef = useRef(true);
 
   const fetchOutput = useCallback(async () => {
     try {
@@ -65,37 +67,34 @@ const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => 
   }, [fetchOutput, alive]);
 
   useEffect(() => {
-    if (autoScroll) {
+    if (autoScrollRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [lines, autoScroll]);
+  }, [lines]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD_PX;
-    setAutoScroll(atBottom);
+    autoScrollRef.current = atBottom;
   };
 
   if (lines.length === 0) {
     return (
       <div className="mt-2 rounded bg-black/40 px-3 py-2 text-xs text-muted-foreground">
-        No output captured yet.
+        {t('backgroundProcesses.noOutputCaptured')}
       </div>
     );
   }
+
+  // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- terminal output lines, no stable ID
+  const lineElements = lines.map((line, i) => <div key={`line-${i}`} className="whitespace-pre-wrap break-all leading-relaxed">{line}</div>); // eslint-disable-line react/no-array-index-key
 
   return (
     <div
       className="mt-2 max-h-52 overflow-y-auto rounded bg-black/40 px-3 py-2 font-mono text-xs text-green-300"
       onScroll={handleScroll}
     >
-      {/* eslint-disable react/no-array-index-key */}
-      {lines.map((line, i) => (
-        <div key={i} className="whitespace-pre-wrap break-all leading-relaxed">
-          {line}
-        </div>
-      ))}
-      {/* eslint-enable react/no-array-index-key */}
+      {lineElements}
       <div ref={bottomRef} />
     </div>
   );
@@ -105,6 +104,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [processes, setProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [killing, setKilling] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -142,7 +142,10 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   };
 
   const handleKillAll = async () => {
-    const pids = processes.filter((p) => p.alive).map((p) => p.pid);
+    const pids: number[] = [];
+    for (const p of processes) {
+      if (p.alive) pids.push(p.pid);
+    }
     setKilling(new Set(pids));
     try {
       await Promise.all(pids.map((pid) => killBackgroundProcess(pid)));
@@ -167,28 +170,30 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
     processes.length > 0
       ? processes.map((proc) => {
           const isExpanded = expanded.has(proc.pid);
-          const expandTitle = isExpanded ? 'Hide output' : 'Show output';
+          const expandTitle = isExpanded
+            ? t('backgroundProcesses.hideOutput')
+            : t('backgroundProcesses.showOutput');
           const expandIcon = isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="size-3.5" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="size-3.5" />
           );
           const statusBadge = proc.alive ? (
             <span className="inline-flex items-center gap-1 text-green-400">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-              alive
+              <span className="size-1.5 animate-pulse rounded-full bg-green-400" />
+              {t('backgroundProcesses.alive')}
             </span>
           ) : (
-            <span className="text-red-400">exited</span>
+            <span className="text-red-400">{t('backgroundProcesses.exited')}</span>
           );
           const killButton = proc.alive ? (
             <button
               onClick={() => handleKill(proc.pid)}
               disabled={killing.has(proc.pid)}
               className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-              title="Kill process"
+              title={t('backgroundProcesses.killProcess')}
             >
-              <X className="h-4 w-4" />
+              <X className="size-4" />
             </button>
           ) : null;
           const outputPanel = isExpanded ? (
@@ -230,8 +235,8 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           onClick={handleKillAll}
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-          Kill All
+          <Trash2 className="size-3.5" />
+          {t('backgroundProcesses.killAll', { count: aliveCount })}
         </button>
       </div>
     ) : null;
@@ -241,18 +246,18 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Terminal className="h-5 w-5" />
-            Background Processes
+            <Terminal className="size-5" />
+            {t('backgroundProcesses.title')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            View and manage background processes
+            {t('backgroundProcesses.viewManage')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[70vh] space-y-2 overflow-y-auto py-2">
           {processes.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No background processes running
+              {t('backgroundProcesses.noProcessesRunning')}
             </p>
           )}
           {processList}

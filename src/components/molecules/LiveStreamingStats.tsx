@@ -2,6 +2,7 @@
 import { Database, Loader2, Square, PackageOpen, X } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
@@ -22,6 +23,7 @@ const LiveTokenCounter = ({
   maxTokens: number;
   pct: number;
 }) => {
+  const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   return (
@@ -30,9 +32,9 @@ const LiveTokenCounter = ({
         type="button"
         onClick={() => setShowModal(true)}
         className={`inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
-        title="Click for token breakdown"
+        title={t('stats.tokenBreakdown')}
       >
-        <Database className="h-3 w-3" />
+        <Database className="size-3" />
         {fmt(tokensUsed)}/{fmt(maxTokens)}
       </button>
       {!!showModal && (
@@ -51,10 +53,12 @@ export const LiveStreamingStats = ({
   maxTokens?: number;
   streamStatus?: string;
 }) => {
+  const { t } = useTranslation();
   const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
-  const [elapsed, setElapsed] = useState(0);
-  const [tokenCount, setTokenCount] = useState(0);
-  const [liveTokPerSec, setLiveTokPerSec] = useState(0);
+  const [tokenStats, setTokenStats] = useState({ count: 0, tokPerSec: 0 });
+  const liveTokPerSec = tokenStats.tokPerSec;
+  const tokenCount = tokenStats.count;
+  const elapsedRef = useRef(0);
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
   const lastTokensRef = useRef<number>(0);
@@ -62,27 +66,30 @@ export const LiveStreamingStats = ({
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- reset + periodic timer, separate concerns
   useEffect(() => {
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
     genTimeRef.current = 0;
-    setTokenCount(0);
-    setLiveTokPerSec(0);
+    setTokenStats({ count: 0, tokPerSec: 0 });
     firstTokensUsedRef.current = null;
     lastTokensRef.current = 0;
     const id = setInterval(() => {
       const now = Date.now();
-      setElapsed(now - startRef.current);
-      // Only count time as "generation time" if tokens changed since last tick
+      elapsedRef.current = now - startRef.current;
       const currentTokens = lastTokensRef.current;
       if (currentTokens > 0 && genTimeRef.current > 0) {
-        setLiveTokPerSec(currentTokens / (genTimeRef.current / 1000));
+        setTokenStats((prev) => ({
+          ...prev,
+          tokPerSec: currentTokens / (genTimeRef.current / 1000),
+        }));
       }
       lastTickRef.current = now;
     }, 1000);
     return () => clearInterval(id);
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- single setTokenStats per token update
   useEffect(() => {
     if (tokensUsed === undefined) return;
     if (firstTokensUsedRef.current === null) {
@@ -95,9 +102,10 @@ export const LiveStreamingStats = ({
       lastTickRef.current = Date.now();
     }
     lastTokensRef.current = newCount;
-    setTokenCount(newCount);
+    setTokenStats((prev) => ({ ...prev, count: newCount }));
   }, [tokensUsed]);
 
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- setPolledStatus in branches
   useEffect(() => {
     if (streamStatus) {
       setPolledStatus(undefined);
@@ -118,6 +126,7 @@ export const LiveStreamingStats = ({
     const id = setInterval(poll, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [streamStatus]);
+  /* react-doctor-enable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect */
 
   const rawStatus = streamStatus || polledStatus;
   // Compaction progress is shown by CompactButton — filter it out of the inline status line.
@@ -125,7 +134,7 @@ export const LiveStreamingStats = ({
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
   // Use generation-only tok/s (excludes tool execution time)
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
-  void elapsed; // elapsed time display moved to LoadingIndicator
+  void elapsedRef; // elapsed time display moved to LoadingIndicator
 
   // Prompt-eval ("Evaluating…") is intentionally not shown here — the LoadingIndicator's
   // spinner + elapsed timer above the bubble already conveys that state. We only render
@@ -135,21 +144,18 @@ export const LiveStreamingStats = ({
     <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
       {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Loader2 className="size-3 animate-spin" />
           {displayStatus}
         </span>
       )}
       {tokenCount > 0 && (
-        <span className="inline-flex items-center gap-1" title="Tokens generated this turn">
+        <span className="inline-flex items-center gap-1" title={t('stats.tokensGenerated')}>
           # {tokenCount.toLocaleString()}
         </span>
       )}
       {!!tokPerSec && (
-        <span
-          className="inline-flex items-center gap-1"
-          title="Generation speed (excluding tool execution time)"
-        >
-          {tokPerSec} tok/s
+        <span className="inline-flex items-center gap-1" title={t('stats.generationSpeed')}>
+          {t('stats.tokPerSec', { speed: tokPerSec })}
         </span>
       )}
       {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
@@ -169,24 +175,32 @@ const CompactButton = ({
   conversationId: string;
   streamStatus?: string;
 }) => {
+  const { t } = useTranslation();
   const [isCompacting, setIsCompacting] = useState(false);
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const [polledProgress, setPolledProgress] = useState<string | null>(null);
+  const [compactState, setCompactState] = useState({
+    elapsedSec: 0,
+    polledProgress: null as string | null,
+  });
   const startRef = useRef<number>(0);
 
   // Auto-compaction is happening when the generation stream carries a Compacting status.
   const isAutoCompacting = !!streamStatus?.includes('Compacting');
   const compacting = isCompacting || isAutoCompacting;
 
+  // Related compaction display state — reset together
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- reset + interval, separate concerns
   useEffect(() => {
     if (!compacting) {
-      setElapsedSec(0);
-      setPolledProgress(null);
+      setCompactState({ elapsedSec: 0, polledProgress: null });
       return;
     }
     startRef.current = Date.now();
     const id = setInterval(
-      () => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)),
+      () =>
+        setCompactState((s) => ({
+          ...s,
+          elapsedSec: Math.floor((Date.now() - startRef.current) / 1000),
+        })),
       1000,
     );
     // Poll server progress only for manual compaction; auto uses streamStatus directly.
@@ -196,7 +210,9 @@ const CompactButton = ({
           const resp = await fetch('/api/model/status');
           if (resp.ok) {
             const data = await resp.json();
-            if (data.status_message) setPolledProgress(data.status_message);
+            if (data.status_message) {
+              setCompactState((s) => ({ ...s, polledProgress: data.status_message }));
+            }
           }
         } catch {
           /* ignore */
@@ -219,35 +235,38 @@ const CompactButton = ({
     try {
       window.dispatchEvent(new CustomEvent('conversation-compacting'));
       await compactConversation(conversationId);
-      toast.success('Conversation compacted', { duration: 2000 });
+      toast.success(t('toast.conversationCompacted'), { duration: 2000 });
       window.dispatchEvent(new CustomEvent('conversation-compacted'));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Compaction failed');
+      toast.error(e instanceof Error ? e.message : t('toast.compactionFailed'));
     } finally {
       setIsCompacting(false);
     }
-  }, [conversationId, compacting]);
+  }, [conversationId, compacting, t]);
 
   // Extract progress % — from streamStatus for auto, polled status for manual.
-  const pctSource = isAutoCompacting ? streamStatus : polledProgress;
+  const pctSource = isAutoCompacting ? streamStatus : compactState.polledProgress;
   const pctMatch = pctSource?.match(/\((\d+)%\)/);
   const pct = pctMatch ? pctMatch[1] : null;
 
   const compactIcon = compacting ? (
-    <Loader2 className="h-3 w-3 animate-spin" />
+    <Loader2 className="size-3 animate-spin" />
   ) : (
-    <PackageOpen className="h-3 w-3" />
+    <PackageOpen className="size-3" />
   );
   const compactLabel = compacting
-    ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
-    : 'Compact';
+    ? t('stats.compactingText', {
+        pct: pct ? `${pct}%` : '…',
+        elapsed: fmtElapsed(compactState.elapsedSec),
+      })
+    : t('stats.compact');
   return (
     <button
       type="button"
       onClick={handleCompact}
       disabled={compacting}
       className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-      title={`Summarize old messages to free context (${ctxPct}% used)`}
+      title={t('stats.compactTitle', { pct: ctxPct })}
     >
       {compactIcon}
       {compactLabel}
@@ -299,7 +318,7 @@ function barColor(pct: number) {
   return 'bg-primary';
 }
 
-// eslint-disable-next-line complexity
+// eslint-disable-next-line complexity, max-lines-per-function
 const TokenBreakdownModal = ({
   onClose,
   modelContextSize,
@@ -307,6 +326,7 @@ const TokenBreakdownModal = ({
   onClose: () => void;
   modelContextSize: number;
 }) => {
+  const { t } = useTranslation();
   const { messages } = useChatContext();
   const { status } = useModelContext();
 
@@ -374,15 +394,15 @@ const TokenBreakdownModal = ({
       >
         <div className="mb-3 flex items-center justify-between">
           <span className="flex items-center gap-1.5 font-semibold">
-            <Database className="h-3.5 w-3.5" />
-            Context breakdown
+            <Database className="size-3.5" />
+            {t('stats.contextBreakdown')}
           </span>
           <button
             type="button"
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -395,67 +415,85 @@ const TokenBreakdownModal = ({
 
         <div className="divide-y divide-border">
           <div className="space-y-0.5 pb-2">
-            <BreakdownRow label="System prompt" value={fmt(systemPromptTokens)} sub="tokens" />
-            <BreakdownRow label="Tool definitions" value={fmt(toolTokens)} sub="tokens" />
+            <BreakdownRow
+              label={t('stats.systemPromptTokens')}
+              value={fmt(systemPromptTokens)}
+              sub={t('stats.tokensSub')}
+            />
+            <BreakdownRow
+              label={t('stats.toolDefinitions')}
+              value={fmt(toolTokens)}
+              sub={t('stats.tokensSub')}
+            />
             {summaryEst > 0 && (
-              <BreakdownRow label="Compaction summary" value={`~${fmt(summaryEst)}`} sub="est." />
+              <BreakdownRow
+                label={t('stats.compactionSummary')}
+                value={`~${fmt(summaryEst)}`}
+                sub={t('stats.estimatedSub')}
+              />
             )}
-            <BreakdownRow label="Messages" value={`~${fmt(activeMsgEst)}`} sub="est." />
+            <BreakdownRow
+              label={t('stats.messages')}
+              value={`~${fmt(activeMsgEst)}`}
+              sub={t('stats.estimatedSub')}
+            />
             {lastTokenBreakdown?.tool_calls_and_results != null && (
               <BreakdownRow
-                label="Tool output"
+                label={t('stats.toolOutput')}
                 value={fmt(lastTokenBreakdown.tool_calls_and_results)}
-                sub="measured"
+                sub={t('stats.measuredSub')}
               />
             )}
             {lastTokenBreakdown?.tool_calls_and_results == null && (
-              <BreakdownRow label="Tool output" value={`~${fmt(activeToolEst)}`} sub="est." />
+              <BreakdownRow
+                label={t('stats.toolOutput')}
+                value={`~${fmt(activeToolEst)}`}
+                sub={t('stats.estimatedSub')}
+              />
             )}
             {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 && (
               <BreakdownRow
-                label="Tool output (raw est.)"
+                label={t('stats.toolOutputRawEst')}
                 value={`~${fmt(activeToolEst)}`}
                 sub={`${Math.round((1 - lastTokenBreakdown.tool_calls_and_results / activeToolEst) * 100)}% RTK`}
               />
             )}
             {compactedEst > 0 && (
               <BreakdownRow
-                label="Compacted history"
+                label={t('stats.compactedHistory')}
                 value={`~${fmt(compactedEst)}`}
-                sub="not in ctx"
+                sub={t('stats.notInCtxSub')}
               />
             )}
           </div>
           <div className="space-y-0.5 py-2">
             {measuredTotal != null && (
               <BreakdownRow
-                label="Last measured total"
+                label={t('stats.lastMeasuredTotal')}
                 value={fmt(measuredTotal)}
-                sub="actual"
+                sub={t('stats.actualSub')}
                 highlight
               />
             )}
             {measuredTotal == null && (
               <BreakdownRow
-                label="Estimated total"
+                label={t('stats.estimatedTotal')}
                 value={`~${fmt(estimatedTotal)}`}
-                sub="est."
+                sub={t('stats.estimatedSub')}
                 highlight
               />
             )}
             <BreakdownRow
-              label="Free space"
+              label={t('stats.freeSpace')}
               value={`~${fmtK(freeSpace)}`}
               sub={`${100 - usedPct}%`}
             />
-            <BreakdownRow label="Context window" value={fmtK(modelContextSize)} />
+            <BreakdownRow label={t('stats.contextWindow')} value={fmtK(modelContextSize)} />
           </div>
         </div>
 
         {measuredTotal != null && (
-          <p className="mt-2 text-[10px] text-muted-foreground">
-            Measured total = prompt + response tokens from last generation.
-          </p>
+          <p className="mt-2 text-[10px] text-muted-foreground">{t('stats.measuredTotal')}</p>
         )}
       </div>
     </div>
@@ -471,6 +509,7 @@ const ContextUsageInfo = ({
   modelContextSize: number;
   ctxPct: number;
 }) => {
+  const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
   const CONTEXT_HIGH_PCT = 70;
   const ctxSpanClass = ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : '';
@@ -480,11 +519,12 @@ const ContextUsageInfo = ({
         type="button"
         onClick={() => setShowModal(true)}
         className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-        title="Click for token breakdown"
+        title={t('stats.tokenBreakdown')}
       >
-        <Database className="h-3 w-3" />
+        <Database className="size-3" />
         <span className={ctxSpanClass}>
-          ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
+          {/* eslint-disable-next-line i18next/no-literal-string */}~
+          {(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
         </span>
         {ctxPct > CONTEXT_HIGH_PCT && (
           <span className="text-[10px] text-yellow-400">({ctxPct}%)</span>
@@ -559,6 +599,7 @@ export const StatsBar = ({
   estimatedConvTokens?: number;
   modelContextSize?: number;
 }) => {
+  const { t } = useTranslation();
   const { currentConversationId } = useChatContext();
 
   const isGenerating =
@@ -601,10 +642,10 @@ export const StatsBar = ({
             onClick={stopGeneration}
             className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             data-testid="stop-button"
-            title="Stop generation"
+            title={t('chat.stopGeneration')}
           >
-            <Square className="h-3 w-3 fill-current" />
-            Stop
+            <Square className="size-3 fill-current" />
+            {t('common.stop')}
           </button>
         )}
       </div>

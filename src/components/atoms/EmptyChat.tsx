@@ -1,5 +1,6 @@
 import { Download, Bot, Loader2, X, CheckCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAgentContext } from '../../contexts/AgentContext';
 import { useChatContext } from '../../contexts/ChatContext';
@@ -16,6 +17,7 @@ type InstallState = 'idle' | 'installing' | 'done' | 'error';
 
 // eslint-disable-next-line complexity, max-lines-per-function
 export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
+  const { t } = useTranslation();
   const {
     status,
     isLoading,
@@ -104,13 +106,13 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     const isWarmup = loadingAction === 'loading' && progress != null && progress > 100;
     const hasProgress =
       loadingAction === 'loading' && progress != null && progress > 0 && !isWarmup;
-    let text = 'Loading model...';
+    let text = t('chat.placeholderLoading');
     if (loadingAction === 'unloading') {
-      text = 'Unloading model...';
+      text = t('model.unloading');
     } else if (isWarmup) {
-      text = 'Loading system prompt...';
+      text = t('model.loadingSystemPrompt');
     } else if (hasProgress) {
-      text = `Loading model... ${progress}%`;
+      text = t('model.loadingPercent', { percent: progress });
     }
     const progressBarClass = isWarmup ? 'animate-pulse' : 'transition-all duration-300 ease-out';
     const progressBarWidth = isWarmup ? '100%' : `${progress}%`;
@@ -123,7 +125,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
           />
         </div>
       ) : (
-        <Loader2 className="h-6 w-6 animate-spin text-foreground" />
+        <Loader2 className="size-6 animate-spin text-foreground" />
       );
 
     return (
@@ -135,10 +137,9 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
             type="button"
             onClick={forceUnload}
             className="mt-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
-            aria-label="Cancel model loading"
           >
-            <X className="h-3.5 w-3.5" />
-            Cancel
+            <X className="size-3.5" />
+            {t('common.cancel')}
           </button>
         )}
       </div>
@@ -216,7 +217,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
           onClick={() => activateAgent(activeAgent.id)}
           className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          Start agent
+          {t('emptyChat.startAgent')}
         </button>
       );
     } else {
@@ -237,29 +238,29 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
         onClick={openAgentSelector}
         className="flat-card flex cursor-pointer flex-col items-center gap-3 bg-muted/50 px-10 py-8 transition-colors hover:bg-muted"
       >
-        <Bot className="h-8 w-8 text-foreground" />
-        <span className="text-sm font-medium text-foreground">Select an agent to start</span>
+        <Bot className="size-8 text-foreground" />
+        <span className="text-sm font-medium text-foreground">{t('emptyChat.selectAgent')}</span>
       </button>
       {!!cudaBanner && (
         <div className="max-w-sm space-y-2 rounded-lg border border-primary/30 bg-primary/10 p-3 text-center">
-          <p className="text-xs text-foreground">
-            NVIDIA GPU detected but CUDA acceleration is not installed.
-          </p>
+          <p className="text-xs text-foreground">{t('emptyChat.nvidiaDetected')}</p>
           {installState === 'idle' && (
             <button
               type="button"
               onClick={handleInstallGpu}
               className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              <Download className="h-3.5 w-3.5" />
-              Install GPU Acceleration
+              <Download className="size-3.5" />
+              {t('emptyChat.installGpu')}
             </button>
           )}
           {installState === 'installing' && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                <span className="text-xs text-foreground">Downloading... {installProgress}%</span>
+                <Loader2 className="size-3.5 animate-spin text-primary" />
+                <span className="text-xs text-foreground">
+                  {t('emptyChat.downloadingProgress', { progress: installProgress })}
+                </span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/20">
                 <div
@@ -271,10 +272,8 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
           )}
           {installState === 'done' && (
             <div className="flex items-center justify-center gap-1.5">
-              <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-              <span className="text-xs text-green-500">
-                Installed! Restart the app to activate.
-              </span>
+              <CheckCircle className="size-3.5 text-green-500" />
+              <span className="text-xs text-green-500">{t('emptyChat.installSuccess')}</span>
             </div>
           )}
           {installState === 'error' && (
@@ -285,20 +284,20 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
                 onClick={handleInstallGpu}
                 className="text-xs text-primary hover:underline"
               >
-                Retry
+                {t('common.retry')}
               </button>
             </div>
           )}
           {installState === 'idle' && (
             <p className="text-[10px] text-muted-foreground">
-              Downloads ~170MB GPU backend. Requires CUDA Toolkit from{' '}
+              {t('emptyChat.installDescription')}{' '}
               <a
                 href="https://developer.nvidia.com/cuda-downloads"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                nvidia.com
+                {t('emptyChat.cudaWebsite')}
               </a>
               .
             </p>

@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useUIContext } from '../../hooks/useUIContext';
 import { isTauriEnv } from '../../utils/tauri';
@@ -37,6 +38,7 @@ async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkno
  */
 /* eslint-disable max-lines-per-function */
 export const BrowserView = React.memo(() => {
+  const { t } = useTranslation();
   const { browserViewUrl, openBrowserView, isBrowserViewOpen } = useUIContext();
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
   const [history, setHistory] = useState<string[]>(browserViewUrl ? [browserViewUrl] : []);
@@ -54,6 +56,7 @@ export const BrowserView = React.memo(() => {
   }, [isBrowserViewOpen, browserViewUrl, openBrowserView]);
 
   // Keep URL input + history in sync when external state changes
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- related navigation state
   useEffect(() => {
     if (!browserViewUrl) return;
     // External URL change (agent navigation) — navigate the panel
@@ -70,11 +73,10 @@ export const BrowserView = React.memo(() => {
       const trimmed = prev.slice(0, historyIdx + 1);
       return [...trimmed, browserViewUrl];
     });
-    setHistoryIdx((prev) => {
-      // If URL matched the current entry, idx unchanged; otherwise advance
-      if (TAURI && prev >= 0) setHasGoBack(true);
-      return prev + 1;
-    });
+    setHistoryIdx((prev) => prev + 1);
+    if (TAURI && historyIdx >= 0) {
+      setHasGoBack(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserViewUrl]);
 
@@ -263,6 +265,7 @@ export const BrowserView = React.memo(() => {
     const LOADING_DISPLAY_MS = 3000;
     loadingTimerRef.current = setTimeout(() => setIsPageLoading(false), LOADING_DISPLAY_MS);
   };
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (browserViewUrl) showLoading();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -338,11 +341,11 @@ export const BrowserView = React.memo(() => {
     contentArea = (
       <div className="flex h-full items-center justify-center text-foreground">
         <div className="text-center">
-          <Globe className="mx-auto mb-3 h-10 w-10 opacity-70" />
-          <p className="text-sm">Enter a URL above to start browsing</p>
+          <Globe className="mx-auto mb-3 size-10 opacity-70" />
+          <p className="text-sm">{t('browserView.enterUrl')}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {!!TAURI && 'Browser opens inside the app'}
-            {!TAURI && 'Browser opens in a separate window'}
+            {!!TAURI && t('browserView.webviewInside')}
+            {!TAURI && t('browserView.separateWindow')}
           </p>
         </div>
       </div>
@@ -354,13 +357,13 @@ export const BrowserView = React.memo(() => {
     // Web mode: wry browser window is open separately — show URL + status here
     contentArea = (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-foreground">
-        <Globe className="h-10 w-10 opacity-60" />
-        <p className="text-sm font-medium">Browser window opened</p>
+        <Globe className="size-10 opacity-60" />
+        <p className="text-sm font-medium">{t('browserView.windowOpened')}</p>
         <p className="max-w-xs break-all text-center text-xs text-muted-foreground">
           {browserViewUrl}
         </p>
         <p className="text-center text-xs text-muted-foreground">
-          The browser is running in a separate native window. Use the URL bar above to navigate.
+          {t('browserView.windowDescription')}
         </p>
       </div>
     );
@@ -373,7 +376,7 @@ export const BrowserView = React.memo(() => {
         <div className="h-0.5 overflow-hidden bg-primary/30">
           <div
             className="h-full animate-pulse bg-primary"
-            style={{ width: '60%', animation: 'loading-bar 1.5s ease-in-out infinite' }}
+            style={{ width: '60%', animation: 'loading-bar 0.8s ease-in-out infinite' }}
           />
         </div>
       )}
@@ -386,11 +389,11 @@ export const BrowserView = React.memo(() => {
               ? 'text-foreground hover:bg-muted'
               : 'cursor-not-allowed text-muted-foreground/30'
           }`}
-          title="Back"
+          title={t('browserView.backTitle')}
           disabled={!canGoBack}
-          aria-label="Back"
+          aria-label={t('browserView.backTitle')}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="size-4" />
         </button>
         <button
           onClick={goForward}
@@ -399,49 +402,61 @@ export const BrowserView = React.memo(() => {
               ? 'text-foreground hover:bg-muted'
               : 'cursor-not-allowed text-muted-foreground/30'
           }`}
-          title="Forward"
+          title={t('browserView.forwardTitle')}
           disabled={!canGoForward}
-          aria-label="Forward"
+          aria-label={t('browserView.forwardTitle')}
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="size-4" />
         </button>
-        <Globe className="ml-1 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+        <Globe className="ml-1 size-3.5 flex-shrink-0 text-muted-foreground" />
         <input
           type="text"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={handleUrlKeyDown}
-          placeholder="Enter URL..."
+          placeholder={t('browserView.urlPlaceholder')}
           className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <button
           onClick={() => navigateToUrl(urlInput)}
           className="btn-icon"
-          title="Navigate"
+          title={t('browserView.navigateTitle')}
           disabled={!urlInput.trim()}
         >
-          <ArrowRight className="h-3.5 w-3.5" />
+          <ArrowRight className="size-3.5" />
         </button>
         {!!browserViewUrl && (
           <>
-            <button onClick={handleReload} className="btn-icon" title="Reload">
-              <RefreshCw className="h-3.5 w-3.5" />
+            <button
+              onClick={handleReload}
+              className="btn-icon"
+              title={t('browserView.reloadTitle')}
+            >
+              <RefreshCw className="size-3.5" />
             </button>
             {!!TAURI && (
               <>
                 <div className="mx-1 h-4 border-l border-border" />
-                <button onClick={handleZoomOut} className="btn-icon" title="Zoom out">
-                  <ZoomOut className="h-3.5 w-3.5" />
+                <button
+                  onClick={handleZoomOut}
+                  className="btn-icon"
+                  title={t('browserView.zoomOutTitle')}
+                >
+                  <ZoomOut className="size-3.5" />
                 </button>
                 <button
                   onClick={handleZoomReset}
                   className="min-w-[3rem] px-1 text-center text-xs text-muted-foreground hover:text-foreground"
-                  title="Reset zoom"
+                  title={t('browserView.resetZoomTitle')}
                 >
                   {Math.round(zoomLevel * 100)}%
                 </button>
-                <button onClick={handleZoomIn} className="btn-icon" title="Zoom in">
-                  <ZoomIn className="h-3.5 w-3.5" />
+                <button
+                  onClick={handleZoomIn}
+                  className="btn-icon"
+                  title={t('browserView.zoomInTitle')}
+                >
+                  <ZoomIn className="size-3.5" />
                 </button>
                 <div className="mx-1 h-4 border-l border-border" />
                 <button
@@ -450,9 +465,9 @@ export const BrowserView = React.memo(() => {
                     if (!showFind) setTimeout(() => findInputRef.current?.focus(), 100);
                   }}
                   className="btn-icon"
-                  title="Find in page (Ctrl+F)"
+                  title={t('browserView.findInPageTitle')}
                 >
-                  <Search className="h-3.5 w-3.5" />
+                  <Search className="size-3.5" />
                 </button>
               </>
             )}
@@ -462,7 +477,7 @@ export const BrowserView = React.memo(() => {
       {/* Find bar (Tauri only) */}
       {!!TAURI && !!showFind && (
         <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="size-3.5 text-muted-foreground" />
           <input
             ref={findInputRef}
             type="text"
@@ -472,14 +487,22 @@ export const BrowserView = React.memo(() => {
               if (e.key === 'Enter') handleFind();
               if (e.key === 'Escape') setShowFind(false);
             }}
-            placeholder="Find in page..."
+            placeholder={t('browserView.findPlaceholder')}
             className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <button onClick={handleFind} className="btn-icon text-xs" title="Find next">
-            <ArrowRight className="h-3 w-3" />
+          <button
+            onClick={handleFind}
+            className="btn-icon text-xs"
+            title={t('browserView.findNextTitle')}
+          >
+            <ArrowRight className="size-3" />
           </button>
-          <button onClick={() => setShowFind(false)} className="btn-icon" title="Close">
-            <X className="h-3 w-3" />
+          <button
+            onClick={() => setShowFind(false)}
+            className="btn-icon"
+            title={t('browserView.closeFindTitle')}
+          >
+            <X className="size-3" />
           </button>
         </div>
       )}

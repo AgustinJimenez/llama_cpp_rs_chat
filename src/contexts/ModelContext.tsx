@@ -84,21 +84,19 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     : '';
 
   // Provider state — persisted in localStorage
-  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
-    () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local',
-  );
+  const storedProvider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
+  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(() => storedProvider);
   const [activeProviderModel, setActiveProviderModel] = useState(() => {
-    const provider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
     const saved =
       localStorage.getItem('activeProviderModel') || localStorage.getItem('activeClaudeModel');
     if (saved) return saved;
-    return provider === 'codex' ? 'gpt-5' : 'sonnet';
+    return storedProvider === 'codex' ? 'gpt-5' : 'sonnet';
   });
 
   // Provider params — persisted in localStorage per provider
   const [providerParams, setProviderParams] = useState<ProviderParamsMap>(() => {
     try {
-      const raw = localStorage.getItem('providerParams');
+      const raw = localStorage.getItem('providerParams:v1');
       return raw ? (JSON.parse(raw) as ProviderParamsMap) : {};
     } catch {
       return {};
@@ -127,8 +125,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
 
   const unloadModel = useCallback(async () => {
     // For remote providers, just clear the provider state (no local model to unload)
-    const currentProvider = localStorage.getItem('activeProvider') || 'local';
-    if (currentProvider !== 'local') {
+    if (activeProvider !== 'local') {
       setActiveProvider('local');
       localStorage.setItem('activeProvider', 'local');
       toast.success(t('toast.providerDisconnected'));
@@ -142,7 +139,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
       logToastError('ModelContext.unloadModel', display);
       toast.error(display, { duration: 5000 });
     }
-  }, [unloadModelRaw, t]);
+  }, [unloadModelRaw, t, activeProvider]);
 
   const forceUnload = useCallback(async () => {
     await hardUnload();
@@ -153,7 +150,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     (providerId: string, params: Record<string, unknown>) => {
       setProviderParams((prev) => {
         const next = { ...prev, [providerId]: params };
-        localStorage.setItem('providerParams', JSON.stringify(next));
+        localStorage.setItem('providerParams:v1', JSON.stringify(next));
         return next;
       });
     },

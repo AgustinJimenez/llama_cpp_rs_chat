@@ -7,6 +7,7 @@
 use std::convert::Infallible;
 
 use hyper::{Body, Method, Request, Response, StatusCode};
+use llama_chat_web::remote;
 
 #[cfg(not(feature = "mock"))]
 use super::worker_pool::WorkerPool;
@@ -21,6 +22,46 @@ pub async fn dispatch(
 ) -> std::result::Result<Response<Body>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+
+    // Auth: non-localhost requests must carry a valid Bearer token.
+    // Exempt: health check, static assets, CORS preflight, remote status (to show QR),
+    //         and WebSocket upgrades (token passed in URL hash, validated on connect).
+    let is_local = req
+        .headers()
+        .get("x-forwarded-for")
+        .is_none()
+        && {
+            // Hyper doesn't expose the peer addr via headers; fall back to path-based exemption.
+            // In practice, the server binds to 0.0.0.0 so all local connections come from 127.0.0.1.
+            // We rely on the OS not routing external traffic to loopback.
+            false // conservatively treat every connection as potentially remote
+        };
+    // Paths that never need a token
+    let auth_exempt = path == "/health"
+        || path == "/api/remote/status"
+        || path.starts_with("/assets/")
+        || path.ends_with(".svg")
+        || path.ends_with(".ico")
+        || path.ends_with(".png")
+        || path == "/"
+        || method == Method::OPTIONS
+        || path.starts_with("/ws/"); // WS token handled separately
+
+    if !is_local && !auth_exempt {
+        if let Some(token) = db.get_remote_access_token() {
+            if !token.is_empty() {
+                let auth_header = req.headers().get("authorization").and_then(|v| v.to_str().ok());
+                if !remote::check_bearer_token(auth_header, &token) {
+                    return Ok(Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .header("www-authenticate", "Bearer")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Unauthorized"}"#))
+                        .unwrap());
+                }
+            }
+        }
+    }
 
     #[cfg(not(feature = "mock"))]
     let pool = worker_pool.expect("Worker pool missing");
@@ -547,6 +588,20 @@ pub async fn dispatch(
         {
             let id = &path["/api/conversations/".len()..path.len() - "/heartbeat/clear".len()];
             super::routes::agent_heartbeat::handle_clear_heartbeat(id, db.clone()).await?
+        }
+
+        // Remote access: LAN discovery, UPnP, token management
+        (&Method::GET, "/api/remote/status") => {
+            super::routes::remote::handle_get_status(db.clone()).await?
+        }
+        (&Method::POST, "/api/remote/upnp/enable") => {
+            super::routes::remote::handle_upnp_enable(db.clone()).await?
+        }
+        (&Method::POST, "/api/remote/upnp/disable") => {
+            super::routes::remote::handle_upnp_disable(req).await?
+        }
+        (&Method::POST, "/api/remote/token/regenerate") => {
+            super::routes::remote::handle_regenerate_token(db.clone()).await?
         }
 
         // OpenAI-compatible server endpoints (for clients like openclaw)

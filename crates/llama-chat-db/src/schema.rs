@@ -195,6 +195,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute("ALTER TABLE config DROP COLUMN web_search_provider", []);
     let _ = conn.execute("ALTER TABLE config DROP COLUMN web_search_api_key", []);
 
+    // Remote access token (generated once, used for Bearer auth from non-localhost clients)
+    let _ = conn.execute("ALTER TABLE config ADD COLUMN remote_access_token TEXT", []);
+
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
         [super::current_timestamp_millis()],

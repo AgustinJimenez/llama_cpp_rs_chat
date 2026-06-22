@@ -5,6 +5,7 @@ import type { ViewMode } from '../types';
 import { UIContext } from './uiState';
 import type { UIContextValue } from './uiState';
 
+// react-doctor-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct UI boolean toggles
 export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [viewModeRaw, setViewModeRaw] = useState<ViewMode>(
     () => (localStorage.getItem('viewMode') as ViewMode) || 'markdown',

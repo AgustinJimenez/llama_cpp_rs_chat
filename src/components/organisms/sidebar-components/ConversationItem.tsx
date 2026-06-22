@@ -1,5 +1,6 @@
 import { MoreVertical, Trash2, CheckSquare, Square } from 'lucide-react';
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ConversationFile } from './types';
 import { relativeTime } from './utils';
@@ -60,9 +61,9 @@ export const ConversationItem = React.memo(
           }}
         >
           {!!isGenerating && (
-            <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+            <span className="relative flex size-2.5 flex-shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-green-500" />
             </span>
           )}
           <span className="truncate" title={displayName}>
@@ -129,31 +130,34 @@ const ContextMenu: React.FC<{
   onClose: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onSelect: (e: React.MouseEvent) => void;
-}> = ({ onClose, onDelete, onSelect }) => (
-  <>
-    <div
-      className="fixed inset-0 z-50"
-      onClick={onClose}
-      onKeyDown={onClose}
-      role="button"
-      tabIndex={0}
-      aria-label="Close menu"
-    />
-    <div className="absolute right-0 top-6 z-50 min-w-[120px] rounded-md border border-border bg-popover py-1 shadow-lg">
-      <button
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
-        onClick={onDelete}
-      >
-        <Trash2 size={12} className="text-destructive" />
-        Delete
-      </button>
-      <button
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
-        onClick={onSelect}
-      >
-        <CheckSquare size={12} />
-        Select
-      </button>
-    </div>
-  </>
-);
+}> = ({ onClose, onDelete, onSelect }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-50"
+        onClick={onClose}
+        onKeyDown={onClose}
+        role="button"
+        tabIndex={0}
+        aria-label="Close menu"
+      />
+      <div className="absolute right-0 top-6 z-50 min-w-[120px] rounded-md border border-border bg-popover py-1 shadow-lg">
+        <button
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
+          onClick={onDelete}
+        >
+          <Trash2 size={12} className="text-destructive" />
+          {t('common.delete')}
+        </button>
+        <button
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
+          onClick={onSelect}
+        >
+          <CheckSquare size={12} />
+          {t('common.select')}
+        </button>
+      </div>
+    </>
+  );
+};

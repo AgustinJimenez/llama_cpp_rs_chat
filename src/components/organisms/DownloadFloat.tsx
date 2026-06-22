@@ -1,5 +1,6 @@
 import { ArrowDownToLine, X, Play, ChevronDown } from 'lucide-react';
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useDownloadContext } from '@/contexts/DownloadContext';
 import { pickDirectory } from '@/utils/tauriCommands';
@@ -32,6 +33,7 @@ function extractQuant(filename: string): string | null {
 }
 
 export const DownloadFloat = () => {
+  const { t } = useTranslation();
   const { downloads, pendingDownloads, startDownload, cancelDownload, activeCount, pendingCount } =
     useDownloadContext();
   const [expanded, setExpanded] = useState(false);
@@ -109,7 +111,9 @@ export const DownloadFloat = () => {
       {!!expanded && (
         <div className="max-h-64 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-2xl">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-xs font-medium text-foreground/70">Downloads</span>
+            <span className="text-xs font-medium text-foreground/70">
+              {t('downloadFloat.title')}
+            </span>
             <button
               onClick={() => setExpanded(false)}
               className="rounded p-0.5 text-muted-foreground hover:bg-muted"
@@ -184,7 +188,7 @@ export const DownloadFloat = () => {
         <div className="relative">
           <ArrowDownToLine size={16} className={arrowIconClass} />
           {activeCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+            <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-blue-400" />
           )}
         </div>
         <span className="text-xs font-medium text-foreground">{pillLabel}</span>

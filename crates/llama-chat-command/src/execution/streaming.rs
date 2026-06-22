@@ -296,8 +296,13 @@ pub fn execute_command_streaming_with_timeout(
                 if success {
                     format!("Command executed successfully (no output){annotation}")
                 } else {
+                    let cd_hint = if trimmed.contains("&&") && trimmed.trim_start().starts_with("cd ") {
+                        " Tip: 'cd path && command' fails when the cd is a shell builtin — use the full path directly instead: e.g. 'python C:/full/path/script.py'."
+                    } else {
+                        ""
+                    };
                     format!(
-                        "Command failed with exit code {exit_code} and produced no output.{annotation}"
+                        "Command failed with exit code {exit_code} and produced no output.{cd_hint}{annotation}"
                     )
                 }
             } else {

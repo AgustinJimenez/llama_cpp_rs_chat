@@ -4,103 +4,10 @@
 
 import type { SamplerConfig } from '@/types';
 
-// Tool tag configuration per model
-// Each model may use different tags for command execution
-export interface ToolTags {
-  execOpen: string; // Opening tag before command
-  execClose: string; // Closing tag after command
-  outputOpen: string; // Opening tag before command output
-  outputClose: string; // Closing tag after command output
-}
-
-// Default SYSTEM.EXEC tags (works for most models)
-export const DEFAULT_TOOL_TAGS: ToolTags = {
-  execOpen: '<||SYSTEM.EXEC>',
-  execClose: '<SYSTEM.EXEC||>',
-  outputOpen: '<||SYSTEM.OUTPUT>',
-  outputClose: '<SYSTEM.OUTPUT||>',
-};
-
-// Tool tag families for different model architectures
-// Models trained with specific tool formats are more likely to follow them
-const TOOL_TAG_FAMILIES = {
-  // Qwen models use <tool_call> tags natively
-  qwen: {
-    execOpen: '<tool_call>',
-    execClose: '</tool_call>',
-    outputOpen: '<tool_response>',
-    outputClose: '</tool_response>',
-  } as ToolTags,
-  // Mistral models use [TOOL_CALLS] format natively
-  mistral: {
-    execOpen: '[TOOL_CALLS]',
-    execClose: '[/TOOL_CALLS]',
-    outputOpen: '[TOOL_RESULTS]',
-    outputClose: '[/TOOL_RESULTS]',
-  } as ToolTags,
-  // GLM models use same tags as Qwen: <tool_call>/<tool_response>
-  // NOTE: <|begin_of_box|>/<|end_of_box|> are VISION bounding box markers, NOT tool tags
-  glm: {
-    execOpen: '<tool_call>',
-    execClose: '</tool_call>',
-    outputOpen: '<tool_response>',
-    outputClose: '</tool_response>',
-  } as ToolTags,
-  // Gemma 4 models use <|tool_call>call:name{args}<tool_call|> format
-  gemma4: {
-    execOpen: '<|tool_call>',
-    execClose: '<tool_call|>',
-    outputOpen: '<|tool_response>',
-    outputClose: '<tool_response|>',
-  } as ToolTags,
-  // Default for models without native tool format
-  default: DEFAULT_TOOL_TAGS,
-};
 
 // Map of general.name -> tool tags
 // Only override for models where native tags work better than SYSTEM.EXEC
 // SYNC: Must match MODEL_TAG_MAP in src/web/chat/tool_tags.rs
-export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
-  // Qwen models - strong tool calling with native tags
-  'Qwen_Qwen3 Coder Next': TOOL_TAG_FAMILIES.qwen,
-  'Qwen3 8B': TOOL_TAG_FAMILIES.qwen,
-  'Qwen_Qwen3 30B A3B Instruct 2507': TOOL_TAG_FAMILIES.qwen,
-  'Qwen3-Coder-30B-A3B-Instruct-1M': TOOL_TAG_FAMILIES.qwen,
-  'Qwen3.5-9B': TOOL_TAG_FAMILIES.qwen,
-  'Qwen3.5-35B-A3B': TOOL_TAG_FAMILIES.qwen,
-  'Qwen_Qwen3.5 35B A3B': TOOL_TAG_FAMILIES.qwen,
-  'Qwen3.6-35B-A3B': TOOL_TAG_FAMILIES.qwen,
-  'Carnice-V2-27B': TOOL_TAG_FAMILIES.qwen,
-  // Mistral models - strong tool calling with native tags
-  'mistralai_Devstral Small 2507': TOOL_TAG_FAMILIES.mistral,
-  'mistralai_Devstral Small 2 24B Instruct 2512': TOOL_TAG_FAMILIES.mistral,
-  'Magistral-Small-2509': TOOL_TAG_FAMILIES.mistral,
-  'mistralai_Ministral 3 3B Instruct 2512 BF16': TOOL_TAG_FAMILIES.mistral,
-  'mistralai_Ministral 3 14B Reasoning 2512': TOOL_TAG_FAMILIES.mistral,
-  // GLM models - same tags as Qwen
-  'Zai org_GLM 4.6V Flash': TOOL_TAG_FAMILIES.glm,
-  'Zai org_GLM 4.7 Flash': TOOL_TAG_FAMILIES.glm,
-  // Gemma 4 models - native tool calling format
-  'Gemma-4-26B-A4B-It': TOOL_TAG_FAMILIES.gemma4,
-  'Gemma-4-31B-It': TOOL_TAG_FAMILIES.gemma4,
-  // Other models - use default SYSTEM.EXEC (no strong native tool format)
-  // MiniCPM, Granite, Nemotron, GPT-OSS, RNJ all use default
-};
-
-// Look up tool tags for a model by general.name
-export function findToolTagsByName(generalName: string): ToolTags {
-  // Exact match
-  if (MODEL_TOOL_TAGS[generalName]) return MODEL_TOOL_TAGS[generalName];
-  // Fuzzy match
-  const normalized = generalName.toLowerCase().replace(/[_\-\s]+/g, ' ');
-  for (const [key, tags] of Object.entries(MODEL_TOOL_TAGS)) {
-    const normalizedKey = key.toLowerCase().replace(/[_\-\s]+/g, ' ');
-    if (normalized.includes(normalizedKey) || normalizedKey.includes(normalized)) {
-      return tags;
-    }
-  }
-  return DEFAULT_TOOL_TAGS;
-}
 
 export type ModelPreset = Partial<SamplerConfig>;
 

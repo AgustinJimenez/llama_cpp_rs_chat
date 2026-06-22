@@ -1,5 +1,6 @@
 import { Gauge, Hash, Database, Terminal } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const PROCESS_POLL_INTERVAL_MS = 5000;
 
@@ -66,6 +67,7 @@ const FinishReasonBadge: React.FC<{ finishReason?: string }> = ({ finishReason }
 };
 
 export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) => {
+  const { t } = useTranslation();
   const { genTokPerSec, genTokens, promptTokens, cachedTokens } = timings;
   const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -99,14 +101,14 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
     <div className="flex items-center gap-3 font-mono text-xs text-foreground">
       {!!genTokens && (
         <span className="inline-flex items-center gap-1" title={tokenTitle}>
-          <Hash className="h-3 w-3" />
+          <Hash className="size-3" />
           {tokenLabel}
         </span>
       )}
       {!!genTokPerSec && (
-        <span className="inline-flex items-center gap-1" title="Generation speed">
-          <Gauge className="h-3 w-3" />
-          {genTokPerSec.toFixed(1)} tok/s
+        <span className="inline-flex items-center gap-1" title={t('stats.generationSpeed')}>
+          <Gauge className="size-3" />
+          {t('stats.tokPerSec', { speed: genTokPerSec.toFixed(1) })}
         </span>
       )}
       {!!cachedTokens && !!promptTokens && (
@@ -114,7 +116,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
           className="inline-flex items-center gap-1 text-cyan-400"
           title={`${formatNumber(cachedTokens)} of ${formatNumber(promptTokens)} input tokens served from cache`}
         >
-          cache: {Math.round((cachedTokens / promptTokens) * 100)}%
+          {t('stats.cacheRatio', { percent: Math.round((cachedTokens / promptTokens) * 100) })}
         </span>
       )}
       {tokensUsed !== undefined && maxTokens !== undefined && !!timings.tokenBreakdown && (
@@ -127,7 +129,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
       )}
       {tokensUsed !== undefined && maxTokens !== undefined && !timings.tokenBreakdown && (
         <span className="inline-flex items-center gap-1" title="Context usage">
-          <Database className="h-3 w-3" />
+          <Database className="size-3" />
           {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
         </span>
       )}
@@ -139,7 +141,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             className="inline-flex cursor-pointer items-center gap-1 text-emerald-400 transition-colors hover:text-emerald-300"
             title="Click to manage background processes"
           >
-            <Terminal className="h-3 w-3" />
+            <Terminal className="size-3" />
             {bgProcesses.length} {processLabel}
           </button>
           <BackgroundProcessesModal

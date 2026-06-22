@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAgentContext } from '../../contexts/AgentContext';
 import { useChatContext } from '../../contexts/ChatContext';
@@ -77,7 +78,7 @@ const RowUnloadButton = ({
     className="flex-shrink-0 px-2 py-1.5 text-muted-foreground transition-colors hover:text-destructive"
     title={title}
   >
-    <Icon className="h-3 w-3" />
+    <Icon className="size-3" />
   </button>
 );
 
@@ -108,7 +109,7 @@ const AgentRow = ({
       onClick={onSelect}
       className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted ${isActive ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
     >
-      <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dotCls}`} title={dotTitle} />
+      <span className={`size-2 flex-shrink-0 rounded-full ${dotCls}`} title={dotTitle} />
       <span className="truncate">{agent.name}</span>
     </button>
     {!!isRunning && (
@@ -122,6 +123,7 @@ const AgentRow = ({
 
 /** Inline agent picker dropdown shown in the chat header. */
 const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
+  const { t } = useTranslation();
   const {
     agents,
     agentStatuses,
@@ -224,11 +226,11 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
 
   const pickerTitle = activeAgent ? `Agent: ${activeAgent.name}` : 'Select agent';
   const pickerIcon = busy ? (
-    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+    <Loader2 className="size-3.5 flex-shrink-0 animate-spin" />
   ) : (
-    <Bot className="h-3.5 w-3.5 flex-shrink-0" />
+    <Bot className="size-3.5 flex-shrink-0" />
   );
-  const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? 'No agent');
+  const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? t('common.noAgent'));
 
   return (
     <div ref={ref} className="relative hidden sm:block">
@@ -240,7 +242,7 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
       >
         {pickerIcon}
         <span className="truncate">{pickerLabel}</span>
-        <ChevronDown className="ml-0.5 h-3 w-3 flex-shrink-0" />
+        <ChevronDown className="ml-0.5 size-3 flex-shrink-0" />
       </button>
 
       {!!open && (
@@ -250,8 +252,8 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
             onClick={() => handleSelect(null)}
             className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted ${!activeAgent ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
           >
-            <span className="h-2 w-2 flex-shrink-0 rounded-full bg-muted-foreground/30" />
-            No agent
+            <span className="size-2 flex-shrink-0 rounded-full bg-muted-foreground/30" />
+            {t('common.noAgent')}
           </button>
           {agents.length > 0 && <div className="my-1 border-t border-border/50" />}
           {agents.map((agent) => {
@@ -322,7 +324,7 @@ const HeaderAgentControls = ({
           title="Cancel model loading"
           aria-label="Cancel model loading"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="size-3.5" />
         </button>
       )}
       {!isLoading && !modelLoaded && !!hasStatusError && (
@@ -331,7 +333,7 @@ const HeaderAgentControls = ({
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           title="Force unload"
         >
-          <Unplug className="h-3.5 w-3.5" />
+          <Unplug className="size-3.5" />
         </button>
       )}
     </>
@@ -378,7 +380,7 @@ export const ChatHeader = React.memo(
             title="Toggle sidebar"
             aria-label="Toggle sidebar"
           >
-            <Menu className="h-4 w-4" />
+            <Menu className="size-4" />
           </button>
           {!!showAgentSelector && (
             <HeaderAgentControls onModelUnload={onModelUnload} onForceUnload={onForceUnload} />
@@ -398,7 +400,7 @@ export const ChatHeader = React.memo(
             className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
             title="Toggle browser view"
           >
-            <Globe className="h-3.5 w-3.5" />
+            <Globe className="size-3.5" />
           </button>
 
           {!!modelLoaded && (
@@ -408,7 +410,7 @@ export const ChatHeader = React.memo(
                 className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
                 title="Event log"
               >
-                <ScrollText className="h-3.5 w-3.5" />
+                <ScrollText className="size-3.5" />
               </button>
 
               <button
@@ -417,7 +419,7 @@ export const ChatHeader = React.memo(
                 className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'cursor-not-allowed opacity-30' : ''}`}
                 title="Model settings"
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <SlidersHorizontal className="size-3.5" />
               </button>
             </>
           )}
@@ -427,7 +429,7 @@ export const ChatHeader = React.memo(
             className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
             title="Toggle system monitor"
           >
-            <Activity className="h-3.5 w-3.5" />
+            <Activity className="size-3.5" />
           </button>
         </div>
       </div>

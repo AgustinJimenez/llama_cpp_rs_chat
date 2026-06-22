@@ -1,4 +1,4 @@
-import type { ToolCall, ToolFormat } from '../types';
+import type { ToolCall } from '../types';
 
 import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
 
@@ -290,35 +290,6 @@ function stripThinkingBlocks(text: string): string {
   return text
     .replace(/<think>[\s\S]*?<\/think>/g, '') // closed think blocks
     .replace(/<think>[\s\S]*$/, ''); // unclosed think block (still streaming)
-}
-
-/**
- * Parser registry mapping tool formats to parsers
- */
-const parserRegistry: Record<ToolFormat, ToolParser | null> = {
-  mistral: mistralParser,
-  llama3: llama3Parser,
-  qwen: qwenParser,
-  openai: null, // OpenAI uses structured API responses, not text parsing
-  unknown: null,
-};
-
-/**
- * Parse tool calls from model output
- */
-export function parseToolCalls(text: string, format: ToolFormat): ToolCall[] {
-  const parser = parserRegistry[format];
-
-  if (!parser) {
-    return [];
-  }
-
-  const stripped = stripThinkingBlocks(text);
-  if (!parser.detect(stripped)) {
-    return [];
-  }
-
-  return parser.parse(stripped);
 }
 
 /**

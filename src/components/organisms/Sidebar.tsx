@@ -1,5 +1,6 @@
 import { Plus, RotateCcw, Settings, Search } from 'lucide-react';
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useChatContext } from '../../contexts/ChatContext';
 import { useDownloadContext } from '../../contexts/DownloadContext';
@@ -29,8 +30,10 @@ interface SidebarProps {
   onNewChat: () => void;
 }
 
-// eslint-disable-next-line max-lines-per-function
+/* eslint-disable max-lines-per-function */
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- genuinely distinct UI states
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
+  const { t } = useTranslation();
   const {
     loadConversation: onLoadConversation,
     currentConversationId,
@@ -104,10 +107,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     }
   };
 
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (connected) fetchConversations();
   }, [connected]);
 
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (currentConversationId && connected) fetchConversations();
   }, [currentConversationId, connected]);
@@ -165,15 +170,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     if (!conversationToDelete) return;
     try {
       if (conversationToDelete.name === '__bulk_delete__') {
-        // Bulk delete all selected conversations
+        // Bulk delete all selected conversations in parallel
         const toDelete = Array.from(selectedConversations);
-        for (const name of toDelete) {
-          try {
-            await deleteConversation(name);
-          } catch {
-            /* ignore */
-          }
-        }
+        await Promise.allSettled(toDelete.map((name) => deleteConversation(name)));
         setConversations((prev) => prev.filter((c) => !selectedConversations.has(c.name)));
         if (currentConversationId && selectedConversations.has(currentConversationId)) {
           onNewChat();
@@ -210,8 +209,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     };
     const onMouseUp = () => {
       dragRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.body.style.cssText += 'cursor:default;user-select:auto;';
     };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -236,10 +234,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
 
   const rotateCcwClass = loading ? 'animate-spin' : '';
   const isBulkDelete = conversationToDelete?.name === '__bulk_delete__';
-  const deleteDialogTitle = isBulkDelete ? 'Conversations' : 'Conversation';
+  const deleteDialogTitle = isBulkDelete
+    ? t('sidebar.deleteConversations')
+    : t('sidebar.deleteConversation');
   const deleteDialogDescription = isBulkDelete
-    ? `Are you sure you want to delete ${selectedConversations.size} conversations? This action cannot be undone.`
-    : 'Are you sure you want to delete this conversation? This action cannot be undone.';
+    ? t('sidebar.deleteBulkConfirm', { count: selectedConversations.size })
+    : t('sidebar.deleteConfirm');
+
+  const groupLabelMap: Record<string, string> = {
+    Today: t('sidebar.today'),
+    Yesterday: t('sidebar.yesterday'),
+    'Previous 7 Days': t('sidebar.previous7Days'),
+    'Previous 30 Days': t('sidebar.previous30Days'),
+    Older: t('sidebar.older'),
+  };
 
   return (
     <>
@@ -270,17 +278,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             data-testid="new-chat-btn"
           >
             <Plus size={16} />
-            New conversation
+            {t('sidebar.newConversation')}
           </button>
           <button
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setIsExplorerOpen(true)}
           >
             <Search size={16} />
-            Explore models
+            {t('sidebar.exploreModels')}
             {downloadActiveCount > 0 && (
               <span className="ml-auto flex items-center gap-1 text-[10px] text-blue-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-blue-400" />
                 {downloadActiveCount}
               </span>
             )}
@@ -288,13 +296,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
         </div>
 
         <div className="flex items-center justify-between px-4 pb-1 pt-2">
-          <span className="text-xs font-medium text-muted-foreground">Conversations</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t('sidebar.conversations')}
+          </span>
           <button
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
             onClick={fetchConversations}
             disabled={loading}
             data-testid="refresh-conversations"
-            aria-label="Refresh conversations"
+            aria-label={t('sidebar.refreshLabel')}
           >
             <RotateCcw size={12} className={rotateCcwClass} />
           </button>
@@ -308,7 +318,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             />
             <input
               type="text"
-              placeholder="Search conversations..."
+              placeholder={t('sidebar.searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full rounded-md border border-border bg-muted py-1.5 pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -322,15 +332,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
               // Only show empty state when not loading — avoids replacing the list with a label
               if (loading) return null;
               const emptyLabel = searchTerm
-                ? `No results for "${searchTerm}"`
-                : 'No conversations yet';
+                ? t('sidebar.noResults', { searchTerm })
+                : t('sidebar.noConversations');
               return (
                 <div className="py-6 text-center text-xs text-muted-foreground">{emptyLabel}</div>
               );
             }
             return groupedEntries.map(({ group, items }) => (
               <div key={group}>
-                <p className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">{group}</p>
+                <p className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">
+                  {groupLabelMap[group] || group}
+                </p>
                 <ul className="m-0 list-none p-0">
                   {items.map(({ conversation, flatIndex }) => (
                     <ConversationItem
@@ -368,10 +380,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           <button
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             onClick={onOpenAppSettings}
-            aria-label="App Settings"
+            aria-label={t('sidebar.appSettingsLabel')}
           >
             <Settings size={16} />
-            Settings
+            {t('sidebar.settings')}
           </button>
         </div>
 
@@ -382,8 +394,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           onMouseDown={(e) => {
             e.preventDefault();
             dragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
+            document.body.style.cssText += 'cursor:col-resize;user-select:none;';
           }}
         />
       </nav>
@@ -391,15 +402,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {deleteDialogTitle}</DialogTitle>
+            <DialogTitle>{deleteDialogTitle}</DialogTitle>
             <DialogDescription>{deleteDialogDescription}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={handleDeleteCancel}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDeleteConfirm}>
-              Delete
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

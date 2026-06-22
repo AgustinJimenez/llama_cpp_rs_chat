@@ -191,6 +191,36 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --no-default-features
 
+  # ── react-doctor ────────────────────────────────────────────────────────────
+  react-doctor:
+    name: react-doctor (score gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
+
+      - run: npm ci --ignore-scripts
+
+      - name: Run react-doctor
+        run: |
+          SCORE=$(npx react-doctor . --yes --offline --score 2>/dev/null | tail -1)
+          echo "react-doctor score: $SCORE"
+          if [ "$SCORE" -lt 70 ]; then
+            echo "❌ Score $SCORE is below minimum threshold of 70"
+            exit 1
+          fi
+          echo "✅ Score $SCORE passes threshold"
+
   # ── Accessibility (axe via Playwright) ──────────────────────────────────────
   accessibility:
     name: Accessibility (axe)

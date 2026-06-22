@@ -60,6 +60,8 @@ pub mod prevent_sleep { pub use llama_chat_worker::prevent_sleep::*; }
 #[allow(unused_imports)]
 pub mod agent_heartbeat_runner { pub use llama_chat_web::agent_heartbeat_runner::*; }
 #[allow(unused_imports)]
+pub mod remote { pub use llama_chat_web::remote::*; }
+#[allow(unused_imports)]
 pub mod request { pub use llama_chat_web::request::*; }
 #[allow(unused_imports)]
 pub mod request_parsing { pub use llama_chat_web::request_parsing::*; }

@@ -18,12 +18,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
   const [elapsed, setElapsed] = useState(0);
   const startTimeRef = useRef<number | null>(null);
 
-  // Auto-open when streaming starts
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-effect-event-handler — single state, auto-open on stream
   useEffect(() => {
     if (isStreaming) setIsOpen(true);
   }, [isStreaming]);
 
-  // Elapsed time tracking
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
   useEffect(() => {
     if (isStreaming) {
       if (startTimeRef.current === null) startTimeRef.current = Date.now();
@@ -56,8 +56,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
         >
           {thinkingLabel}
         </span>
-        {!!isOpen && <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
-        {!isOpen && <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
+        {!!isOpen && <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />}
+        {!isOpen && <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />}
       </button>
       {!!isOpen && (
         <pre

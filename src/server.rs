@@ -126,6 +126,18 @@ pub async fn server_main() -> std::io::Result<()> {
         }
     });
 
+    // Start mDNS announcement so phones on the same LAN can discover the server
+    let _mdns_daemon = {
+        let ip_str = crate::web::remote::get_local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "0.0.0.0".to_string());
+        let hostname = hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "llama-chat".to_string());
+        llama_chat_web::remote::mdns::start(18080, &ip_str, &hostname)
+    };
+
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 18080));
     let server = Server::bind(&addr).serve(make_svc);

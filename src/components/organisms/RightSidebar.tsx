@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useSystemResources } from '../../contexts/SystemResourcesContext';
 import { DebugPanelContent } from '../atoms/DebugPanel';
@@ -13,7 +14,8 @@ interface RightSidebarProps {
 
 type Tab = 'system' | 'debug';
 
-export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps): JSX.Element => {
+export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
+  const { t } = useTranslation();
   const { setMonitorActive } = useSystemResources();
   const [activeTab, setActiveTab] = useState<Tab>('system');
 
@@ -59,7 +61,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps): JSX.Elemen
 
       {/* Sidebar */}
       <aside
-        aria-label="System Monitor"
+        aria-label={t('rightSidebar.systemMonitor')}
         className={`fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-card transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
@@ -84,9 +86,9 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps): JSX.Elemen
           <button
             onClick={onClose}
             className="rounded-lg p-2 transition-colors hover:bg-muted"
-            title="Close sidebar"
+            title={t('rightSidebar.closeSidebar')}
           >
-            <X className="h-5 w-5" />
+            <X className="size-5" />
           </button>
         </div>
 

@@ -208,12 +208,15 @@ function parseMistralBody(body: string): { name: string; args: Record<string, un
   try {
     const parsed = JSON.parse(body);
     const items = Array.isArray(parsed) ? parsed : [parsed];
-    const calls = items
-      .filter((item: Record<string, unknown>) => item?.name)
-      .map((item: Record<string, unknown>) => ({
-        name: item.name as string,
-        args: (item.arguments || {}) as Record<string, unknown>,
-      }));
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    for (const item of items as Record<string, unknown>[]) {
+      if (item?.name) {
+        calls.push({
+          name: item.name as string,
+          args: (item.arguments || {}) as Record<string, unknown>,
+        });
+      }
+    }
     if (calls.length > 0) return calls;
   } catch {
     /* skip */

@@ -31,17 +31,17 @@ export const LoadingIndicator: React.FC = () => {
       <div className="inline-flex flex-col">
         <div className="flex items-center gap-2">
           <div
-            className="flat-pulse h-3 w-3 rounded-full bg-primary"
+            className="flat-pulse size-3 rounded-full bg-primary"
             style={{ animationDelay: '0ms' }}
             data-testid="loading-dot-1"
           />
           <div
-            className="flat-pulse h-3 w-3 rounded-full bg-primary"
+            className="flat-pulse size-3 rounded-full bg-primary"
             style={{ animationDelay: '200ms' }}
             data-testid="loading-dot-2"
           />
           <div
-            className="flat-pulse h-3 w-3 rounded-full bg-primary"
+            className="flat-pulse size-3 rounded-full bg-primary"
             style={{ animationDelay: '400ms' }}
             data-testid="loading-dot-3"
           />
