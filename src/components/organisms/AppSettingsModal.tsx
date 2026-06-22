@@ -99,7 +99,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           <DialogDescription className="sr-only">{t('appSettings.title')}</DialogDescription>
         </DialogHeader>
 
-        <div className="mb-4 flex border-b border-border">
+        <div className="mb-4 flex overflow-x-auto border-b border-border">
           {TABS.map((tab) => (
             <button
               key={tab}
