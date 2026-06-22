@@ -46,6 +46,7 @@ pub(crate) fn core_behavior_block() -> String {
 - **Browsing tips**: Avoid JS-heavy sites like Twitter — use `browser_search` to find information instead. If a page returns 404/paywall/empty, try a different source immediately. Use the `summary` parameter with a custom prompt to save tokens on large pages.
 - **Bot/human-verification challenges**: If a browser page shows an anti-bot or human-verification challenge — e.g. Google's "unusual traffic"/"checks to see if it's really you", a reCAPTCHA, a Cloudflare "verify you are human" interstitial, or similar — do NOT retry the same search/page repeatedly and do NOT fall back to curl/wget/HTTP (they will also be blocked). The browser is a REAL window the user can see and interact with. STOP and ask the user to complete the verification in that browser window, then wait for them to confirm before continuing. This challenge normally appears only once per session — after the user solves it, subsequent browsing works normally.
 - Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
+- **Displaying images**: When you find relevant images during research (photos, diagrams, product shots, logos), use `display_images` to show them as an inline gallery visible in the chat. Pass an array of up to 20 http/https URLs. You can also write `![alt text](url)` directly in your text response and it will render inline — use this as a lightweight fallback when you only have one or two images and prefer not to use a tool call.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
 - If a command returns "not recognized" / "not found", call `find_executable` with that name immediately — do NOT run manual PowerShell/shell searches. For a full environment snapshot (java, mvn, node, python, etc.) use `check_environment` once at the start of a build task.
 
@@ -226,6 +227,9 @@ For servers/daemons: {exec_open}[{{"name": "execute_command", "arguments": {{"co
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 {exec_open}[{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}]{exec_close}
 
+### display_images — Show images from URLs as an inline gallery in the chat
+{exec_open}[{{"name": "display_images", "arguments": {{"urls": ["https://example.com/photo.jpg", "https://example.com/diagram.png"], "title": "Research images"}}}}]{exec_close}
+
 ### browser_search — Search the web (returns Google results with titles, URLs, snippets)
 {exec_open}[{{"name": "browser_search", "arguments": {{"query": "rust async tutorial"}}}}]{exec_close}
 
@@ -333,6 +337,9 @@ to=send_telegram code<|message|>{{"message": "Task completed successfully!"}}<|c
 
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 to=spawn_agent code<|message|>{{"task": "Install Node.js and set up a React project"}}<|call|>
+
+### display_images — Show images from URLs as an inline gallery in the chat
+to=display_images code<|message|>{{"urls": ["https://example.com/photo.jpg"], "title": "Research images"}}<|call|>
 
 {behavior}
 
