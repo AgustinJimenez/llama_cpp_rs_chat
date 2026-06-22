@@ -84,7 +84,8 @@ const SectionHeader = ({
   </button>
 );
 
-// eslint-disable-next-line max-lines-per-function -- single cohesive provider selection modal
+// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct provider selection states
+// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component -- single cohesive provider selection modal
 export const ProviderSelector = ({
   isOpen,
   onClose,
@@ -127,8 +128,10 @@ export const ProviderSelector = ({
           fetch('/api/providers/configured'),
           fetch('/api/config/provider-keys'),
         ]);
-        const data = await configuredRes.json();
-        const keysData = await keysRes.json().catch(() => ({}));
+        const [data, keysData] = await Promise.all([
+          configuredRes.json(),
+          keysRes.json().catch(() => ({})),
+        ]);
         if (!cancelled.v) {
           setProviders((current) => {
             const merged = new Map(current.map((p) => [p.id, p]));
@@ -179,6 +182,7 @@ export const ProviderSelector = ({
     }
   }, []);
 
+  // Multiple setState calls for independent UI state — genuinely separate concerns
   useEffect(() => {
     if (!isOpen) return;
     const cancelled = { v: false };
@@ -411,7 +415,7 @@ export const ProviderSelector = ({
                         </div>
                         <form
                           onSubmit={(e) => {
-                            e.preventDefault();
+                            e.preventDefault(); // SPA: prevent page reload
                             const m = customModels[provider.id]?.trim();
                             if (m && provider.available) onSelectRemote(provider.id, m);
                           }}
@@ -626,7 +630,7 @@ export const ProviderSelector = ({
                             </select>
                             <form
                               onSubmit={(e) => {
-                                e.preventDefault();
+                                e.preventDefault(); // SPA: prevent page reload
                                 const m = customModels[provider.id]?.trim();
                                 if (m) onSelectRemote(provider.id, m);
                               }}

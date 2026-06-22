@@ -25,6 +25,7 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
   defaultExpanded = true,
   freeLayout,
 }) => {
+  // eslint-disable-next-line react/hook-use-state -- mutable; prop is just the default
   const [expanded, setExpanded] = useState(defaultExpanded);
   const collapseChevron = expanded ? (
     <ChevronDown className="size-3.5 text-muted-foreground" />

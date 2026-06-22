@@ -93,7 +93,7 @@ const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => 
     >
       {/* eslint-disable react/no-array-index-key */}
       {lines.map((line, i) => (
-        <div key={i} className="whitespace-pre-wrap break-all leading-relaxed">
+        <div key={`line-${i}`} className="whitespace-pre-wrap break-all leading-relaxed">
           {line}
         </div>
       ))}

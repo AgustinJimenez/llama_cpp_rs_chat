@@ -30,7 +30,7 @@ function formatErrorTime(timestamp: number) {
   return new Date(timestamp).toLocaleString();
 }
 
-// eslint-disable-next-line max-lines-per-function -- single modal component, splitting tabs would fragment readability
+// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component -- single modal component, splitting tabs would fragment readability
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const { config, updateConfig } = useSettings();
@@ -39,10 +39,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
   const [appErrors, setAppErrors] = useState<AppErrorEntry[]>([]);
   const [errorsLoading, setErrorsLoading] = useState(false);
 
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (config) setLocalConfig(config);
   }, [config]);
 
+  // Related loading/data states (isLoading vs data) — separate concerns
   useEffect(() => {
     if (!isOpen || activeTab !== 'Errors') return;
     let cancelled = false;

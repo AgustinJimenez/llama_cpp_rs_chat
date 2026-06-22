@@ -13,6 +13,7 @@ function generateId(): string {
   return `mcp_${Date.now()}_${Math.random().toString(RADIX_36).slice(2, ID_SLICE_END)}`;
 }
 
+// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct form input states
 // eslint-disable-next-line max-lines-per-function -- single cohesive form section
 export const McpSettingsSection: React.FC = () => {
   const { t } = useTranslation();

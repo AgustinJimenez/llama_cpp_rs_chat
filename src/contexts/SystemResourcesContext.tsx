@@ -54,6 +54,7 @@ const SystemResourcesContext = createContext<SystemResourcesValue>({
   setMonitorActive: () => {},
 });
 
+// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct hardware/usage states
 // eslint-disable-next-line max-lines-per-function
 export const SystemResourcesProvider = ({ children }: { children: ReactNode }) => {
   // Defaults are 0, not arbitrary "common" sizes — the VRAM optimizer relies on

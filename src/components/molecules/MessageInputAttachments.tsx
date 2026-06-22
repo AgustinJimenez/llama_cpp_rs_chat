@@ -125,11 +125,6 @@ export function getFileExtension(name: string): string {
   return dot >= 0 ? name.slice(dot).toLowerCase() : '';
 }
 
-export function formatCharCount(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return `${n}`;
-}
-
 export function buildFinalMessage(
   message: string,
   attachedFiles: AttachedFile[],
@@ -213,28 +208,30 @@ export function useFileAttachments(hasVision: boolean) {
 
   const processFiles = useCallback(
     async (files: File[]) => {
-      for (const file of files) {
-        const ext = getFileExtension(file.name);
+      await Promise.all(
+        files.map(async (file) => {
+          const ext = getFileExtension(file.name);
 
-        if (IMAGE_EXTENSIONS.has(ext) && hasVision) {
-          await processImageFile(file, addImage);
-          continue;
-        }
-        if (TEXT_EXTENSIONS.has(ext)) {
-          await processTextFile(file, addFile);
-          continue;
-        }
-        if (DOCUMENT_EXTENSIONS.has(ext)) {
-          await processDocumentFile(file, addFile, setIsExtracting);
-          continue;
-        }
-        // Unknown extension -- try as text
-        try {
-          await processTextFile(file, addFile);
-        } catch {
-          // Could not read file
-        }
-      }
+          if (IMAGE_EXTENSIONS.has(ext) && hasVision) {
+            await processImageFile(file, addImage);
+            return;
+          }
+          if (TEXT_EXTENSIONS.has(ext)) {
+            await processTextFile(file, addFile);
+            return;
+          }
+          if (DOCUMENT_EXTENSIONS.has(ext)) {
+            await processDocumentFile(file, addFile, setIsExtracting);
+            return;
+          }
+          // Unknown extension -- try as text
+          try {
+            await processTextFile(file, addFile);
+          } catch {
+            // Could not read file
+          }
+        }),
+      );
     },
     [hasVision, addImage, addFile],
   );

@@ -363,9 +363,7 @@ export interface ConversationMetric {
   timestamp: number;
 }
 
-export async function getConversationMetrics(
-  conversationId: string,
-): Promise<ConversationMetric[]> {
+async function getConversationMetrics(conversationId: string): Promise<ConversationMetric[]> {
   const id = conversationId;
   if (isTauriEnv()) {
     return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
@@ -395,17 +393,17 @@ function assertWebWorkersAvailable(): void {
   }
 }
 
-export async function listWorkers(): Promise<WorkersResponse> {
+async function listWorkers(): Promise<WorkersResponse> {
   assertWebWorkersAvailable();
   return fetchJson<WorkersResponse>('/api/workers');
 }
 
-export async function getWorkerStatus(workerId: string): Promise<WorkerSummary> {
+async function getWorkerStatus(workerId: string): Promise<WorkerSummary> {
   assertWebWorkersAvailable();
   return fetchJson<WorkerSummary>(`/api/workers/${encodeURIComponent(workerId)}/status`);
 }
 
-export async function createWorker(request: {
+async function createWorker(request: {
   model_path: string;
   gpu_layers?: number;
   mmproj_path?: string;
@@ -418,12 +416,12 @@ export async function createWorker(request: {
   });
 }
 
-export async function deleteWorker(workerId: string): Promise<void> {
+async function deleteWorker(workerId: string): Promise<void> {
   assertWebWorkersAvailable();
   await fetchJson(`/api/workers/${encodeURIComponent(workerId)}`, { method: 'DELETE' });
 }
 
-export async function bindConversationWorker(
+async function bindConversationWorker(
   conversationId: string,
   workerId: string | null,
 ): Promise<void> {
@@ -437,7 +435,7 @@ export async function bindConversationWorker(
 
 // ─── Chat ─────────────────────────────────────────────────────────────
 
-export async function cancelGeneration(): Promise<void> {
+async function cancelGeneration(): Promise<void> {
   if (isTauriEnv()) {
     await invokeCmd('cancel_generation');
     return;
@@ -447,7 +445,7 @@ export async function cancelGeneration(): Promise<void> {
 
 // ─── Files ────────────────────────────────────────────────────────────
 
-export async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
+async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
   if (isTauriEnv()) {
     return invokeCmd<BrowseFilesResponse>('browse_files', path ? { path } : {});
   }
@@ -457,7 +455,7 @@ export async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
 
 // ─── Tools ────────────────────────────────────────────────────────────
 
-export async function executeTool(toolCall: ToolCall): Promise<Record<string, unknown>> {
+async function executeTool(toolCall: ToolCall): Promise<Record<string, unknown>> {
   if (isTauriEnv()) {
     return invokeCmd<Record<string, unknown>>('execute_tool', {
       request: {
@@ -476,7 +474,7 @@ export async function executeTool(toolCall: ToolCall): Promise<Record<string, un
   });
 }
 
-export async function webFetch(url: string, maxLength?: number): Promise<Record<string, unknown>> {
+async function webFetch(url: string, maxLength?: number): Promise<Record<string, unknown>> {
   if (isTauriEnv()) {
     return invokeCmd<Record<string, unknown>>('web_fetch', { url, maxLength });
   }
@@ -754,3 +752,16 @@ export async function killBackgroundProcess(pid: number): Promise<void> {
     body: JSON.stringify({ pid }),
   });
 }
+
+// Retained IPC wrappers (unused but preserved for documentation)
+void [
+  getConversationMetrics,
+  listWorkers,
+  getWorkerStatus,
+  createWorker,
+  deleteWorker,
+  bindConversationWorker,
+  cancelGeneration,
+  executeTool,
+  webFetch,
+];

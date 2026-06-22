@@ -55,9 +55,9 @@ export const LiveStreamingStats = ({
 }) => {
   const { t } = useTranslation();
   const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
-  const [elapsed, setElapsed] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
   const [liveTokPerSec, setLiveTokPerSec] = useState(0);
+  const elapsedRef = useRef(0);
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
   const lastTokensRef = useRef<number>(0);
@@ -65,6 +65,7 @@ export const LiveStreamingStats = ({
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
+  // Related token tracking state — reset together on initialization
   useEffect(() => {
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
@@ -75,7 +76,7 @@ export const LiveStreamingStats = ({
     lastTokensRef.current = 0;
     const id = setInterval(() => {
       const now = Date.now();
-      setElapsed(now - startRef.current);
+      elapsedRef.current = now - startRef.current;
       // Only count time as "generation time" if tokens changed since last tick
       const currentTokens = lastTokensRef.current;
       if (currentTokens > 0 && genTimeRef.current > 0) {
@@ -101,6 +102,8 @@ export const LiveStreamingStats = ({
     setTokenCount(newCount);
   }, [tokensUsed]);
 
+  // setPolledStatus in different branches — not cascading
+  // eslint-disable-next-line react-doctor/no-fetch-in-effect
   useEffect(() => {
     if (streamStatus) {
       setPolledStatus(undefined);
@@ -128,7 +131,7 @@ export const LiveStreamingStats = ({
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
   // Use generation-only tok/s (excludes tool execution time)
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
-  void elapsed; // elapsed time display moved to LoadingIndicator
+  void elapsedRef; // elapsed time display moved to LoadingIndicator
 
   // Prompt-eval ("Evaluating…") is intentionally not shown here — the LoadingIndicator's
   // spinner + elapsed timer above the bubble already conveys that state. We only render
@@ -179,6 +182,8 @@ const CompactButton = ({
   const isAutoCompacting = !!streamStatus?.includes('Compacting');
   const compacting = isCompacting || isAutoCompacting;
 
+  // Related compaction display state — reset together
+  // eslint-disable-next-line react-doctor/no-fetch-in-effect
   useEffect(() => {
     if (!compacting) {
       setElapsedSec(0);

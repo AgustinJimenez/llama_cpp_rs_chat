@@ -190,6 +190,7 @@ const UserMessage: React.FC<{
   const { t } = useTranslation();
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
+  // eslint-disable-next-line react/hook-use-state
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -298,7 +299,7 @@ const UserMessage: React.FC<{
                   className="max-h-64 max-w-full rounded-lg object-contain"
                 />
               ))}
-              {/* eslint-enable react/no-array-index-key */}
+              {/* eslint-enable react/no-array-index-key, react-doctor/no-array-index-key */}
             </div>
           )}
           {(() => {
@@ -339,6 +340,7 @@ const UserMessage: React.FC<{
  * Assistant message component with thinking and tool calls
  * rendered in chronological order.
  */
+// eslint-disable-next-line react-doctor/no-many-boolean-props
 const AssistantMessage: React.FC<{
   message: Message;
   viewMode: 'text' | 'markdown' | 'raw';
@@ -392,7 +394,7 @@ const AssistantMessage: React.FC<{
             )}
 
             {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
-            {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
+            {/* eslint-disable react/no-array-index-key, react-doctor/no-array-index-key -- segments are positional with no stable ID */}
             {(isStreaming ? segments : groupConsecutiveToolCalls(segments)).map(
               (segment, index) => {
                 if (segment.type === 'tool_call_group') {

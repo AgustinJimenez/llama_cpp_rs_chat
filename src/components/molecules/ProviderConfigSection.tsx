@@ -174,7 +174,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
-  const handleChange = useCallback(
+  const handleParamChange = useCallback(
     (key: string, val: unknown) => {
       setProviderParamsFor(providerId, { ...currentParams, [key]: val });
     },
@@ -220,7 +220,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
           key={schema.key}
           schema={schema}
           value={mergedParams[schema.key]}
-          onChange={handleChange}
+          onChange={handleParamChange}
         />
       ))}
 
@@ -229,7 +229,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
           key={schema.key}
           schema={schema}
           value={mergedParams[schema.key]}
-          onChange={handleChange}
+          onChange={handleParamChange}
           onRemove={() => handleRemoveOptional(schema.key)}
         />
       ))}

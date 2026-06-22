@@ -22,11 +22,6 @@ export function getRemoteToken(): string | null {
   return localStorage.getItem(STORAGE_KEY);
 }
 
-/** Clear the stored token (logout). */
-export function clearRemoteToken(): void {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
 /**
  * Return Authorization headers for fetch() calls.
  * Returns an empty object on localhost (no token needed).

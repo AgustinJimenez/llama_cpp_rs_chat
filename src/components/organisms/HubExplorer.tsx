@@ -331,8 +331,8 @@ const ModelCard = ({
             </div>
           )}
           {!loadingFiles &&
-            [...files]
-              .sort((a, b) => {
+            files
+              .toSorted((a, b) => {
                 const ta = fileType(a.name);
                 const tb = fileType(b.name);
                 // mmproj/imatrix after models
@@ -619,6 +619,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     refreshRecords,
   } = useDownloadContext();
 
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (isOpen) {
       searchModels('');
@@ -643,7 +644,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     if (e.key === 'Enter') searchModels(query);
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
     debouncedSearch(e.target.value);
   };
@@ -789,7 +790,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                     <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <input
                       value={query}
-                      onChange={handleChange}
+                      onChange={handleSearchInputChange}
                       onKeyDown={handleKeyDown}
                       placeholder={t('hubExplorer.searchPlaceholder')}
                       className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"

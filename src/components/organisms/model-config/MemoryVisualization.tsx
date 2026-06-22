@@ -540,7 +540,7 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
               <div className="flex items-center gap-1.5">
                 <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-l-full bg-indigo-500"
+                    className="h-full rounded-l-full bg-primary"
                     style={{
                       width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
                     }}
@@ -560,7 +560,7 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
               </div>
               <div className="mt-0.5 flex gap-3 text-[9px] text-muted-foreground">
                 <span>
-                  <span className="mr-0.5 inline-block size-1.5 rounded-full bg-indigo-500" />
+                  <span className="mr-0.5 inline-block size-1.5 rounded-full bg-primary" />
                   {t('memoryVisualization.systemTokens', {
                     count: (systemPromptTokens || 0).toLocaleString(),
                   })}

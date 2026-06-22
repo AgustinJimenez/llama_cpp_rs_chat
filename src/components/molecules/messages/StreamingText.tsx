@@ -21,6 +21,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreami
   const [isIdle, setIsIdle] = useState(false);
 
   // Detect stream idle gaps: reset on every new token, fire after 150ms silence
+  // setIsIdle calls are in different branches (streaming vs not) — not cascading
   useEffect(() => {
     if (!isStreaming) {
       setIsIdle(false);

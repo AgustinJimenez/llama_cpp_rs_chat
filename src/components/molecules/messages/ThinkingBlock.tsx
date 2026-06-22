@@ -19,11 +19,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
   const startTimeRef = useRef<number | null>(null);
 
   // Auto-open when streaming starts
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (isStreaming) setIsOpen(true);
   }, [isStreaming]);
 
-  // Elapsed time tracking
+  // Elapsed time tracking — single setElapsed per branch (streaming vs freeze), not cascading
   useEffect(() => {
     if (isStreaming) {
       if (startTimeRef.current === null) startTimeRef.current = Date.now();

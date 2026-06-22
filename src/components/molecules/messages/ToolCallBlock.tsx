@@ -141,6 +141,8 @@ function useElapsedTime(isActive: boolean): number {
   const [elapsed, setElapsed] = React.useState(0);
   const deactivateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Single setElapsed per branch (active vs debounced deactivation) — not cascading
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   React.useEffect(() => {
     if (isActive) {
       // Cancel any pending deactivation
@@ -328,6 +330,7 @@ const ScrollableOutput: React.FC<{
   }, [output, isStreaming]);
 
   // Reset user-scrolled flag when streaming starts
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (isStreaming) userScrolledRef.current = false;
   }, [isStreaming]);

@@ -1,3 +1,4 @@
+// eslint-disable-next-line react-doctor/prefer-dynamic-import
 import type { Chart as ChartInstance } from 'chart.js';
 import mermaid from 'mermaid';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -137,6 +138,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
         ref={containerRef}
         className="w-full overflow-x-auto rounded-lg bg-muted/50 p-4 dark:bg-[#1a1a2e] [&_.edgeLabel]:!text-gray-700 dark:[&_.edgeLabel]:!text-gray-200 [&_.flowchart-link]:!stroke-gray-400 [&_.label]:!text-gray-900 [&_.nodeLabel]:!text-gray-900 [&_text]:!fill-gray-700 dark:[&_text]:!fill-gray-200"
         style={{ ['--mermaid-node-text' as string]: '#1a202c' }}
+        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: svg }}
       />
     </ExpandableBlock>

@@ -19,7 +19,8 @@ interface UpnpResult {
   external_port?: number;
 }
 
-export const RemoteAccess: React.FC = () => {
+// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct remote access UI states
+const RemoteAccess: React.FC = () => {
   const { t } = useTranslation();
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [upnpResult, setUpnpResult] = useState<UpnpResult | null>(null);

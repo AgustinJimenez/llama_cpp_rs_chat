@@ -84,15 +84,13 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     : '';
 
   // Provider state — persisted in localStorage
-  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
-    () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local',
-  );
+  const storedProvider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
+  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(() => storedProvider);
   const [activeProviderModel, setActiveProviderModel] = useState(() => {
-    const provider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
     const saved =
       localStorage.getItem('activeProviderModel') || localStorage.getItem('activeClaudeModel');
     if (saved) return saved;
-    return provider === 'codex' ? 'gpt-5' : 'sonnet';
+    return storedProvider === 'codex' ? 'gpt-5' : 'sonnet';
   });
 
   // Provider params — persisted in localStorage per provider

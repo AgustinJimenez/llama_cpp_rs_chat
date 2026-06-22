@@ -60,7 +60,8 @@ const TOOL_TAG_FAMILIES = {
 // Map of general.name -> tool tags
 // Only override for models where native tags work better than SYSTEM.EXEC
 // SYNC: Must match MODEL_TAG_MAP in src/web/chat/tool_tags.rs
-export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
+// @ts-ignore -- retained for model tool tag reference
+const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   // Qwen models - strong tool calling with native tags
   'Qwen_Qwen3 Coder Next': TOOL_TAG_FAMILIES.qwen,
   'Qwen3 8B': TOOL_TAG_FAMILIES.qwen,
@@ -86,21 +87,6 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
   // MiniCPM, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
-
-// Look up tool tags for a model by general.name
-export function findToolTagsByName(generalName: string): ToolTags {
-  // Exact match
-  if (MODEL_TOOL_TAGS[generalName]) return MODEL_TOOL_TAGS[generalName];
-  // Fuzzy match
-  const normalized = generalName.toLowerCase().replace(/[_\-\s]+/g, ' ');
-  for (const [key, tags] of Object.entries(MODEL_TOOL_TAGS)) {
-    const normalizedKey = key.toLowerCase().replace(/[_\-\s]+/g, ' ');
-    if (normalized.includes(normalizedKey) || normalizedKey.includes(normalized)) {
-      return tags;
-    }
-  }
-  return DEFAULT_TOOL_TAGS;
-}
 
 export type ModelPreset = Partial<SamplerConfig>;
 

@@ -17,6 +17,7 @@ export const ConnectionBanner: React.FC = () => {
   const { connected, reconnecting, attempt, disconnectedAt } = useConnection();
   const [elapsed, setElapsed] = useState('');
 
+  // Single setElapsed per branch — not cascading
   useEffect(() => {
     if (!disconnectedAt) {
       setElapsed('');

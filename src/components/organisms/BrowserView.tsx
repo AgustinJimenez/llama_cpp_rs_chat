@@ -72,11 +72,10 @@ export const BrowserView = React.memo(() => {
       const trimmed = prev.slice(0, historyIdx + 1);
       return [...trimmed, browserViewUrl];
     });
-    setHistoryIdx((prev) => {
-      // If URL matched the current entry, idx unchanged; otherwise advance
-      if (TAURI && prev >= 0) setHasGoBack(true);
-      return prev + 1;
-    });
+    setHistoryIdx((prev) => prev + 1);
+    if (TAURI && historyIdx >= 0) {
+      setHasGoBack(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserViewUrl]);
 
@@ -265,6 +264,7 @@ export const BrowserView = React.memo(() => {
     const LOADING_DISPLAY_MS = 3000;
     loadingTimerRef.current = setTimeout(() => setIsPageLoading(false), LOADING_DISPLAY_MS);
   };
+  // eslint-disable-next-line react-doctor/no-effect-event-handler
   useEffect(() => {
     if (browserViewUrl) showLoading();
     // eslint-disable-next-line react-hooks/exhaustive-deps

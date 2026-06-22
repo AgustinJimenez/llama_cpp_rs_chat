@@ -6,7 +6,7 @@ export { RightSidebar } from './RightSidebar';
 export { AppSettingsModal } from './AppSettingsModal';
 export { SystemUsage } from './SystemUsage';
 export { ModelSelector } from './ModelSelector';
-export { FileBrowser } from './FileBrowser';
+export { RemoteAccess } from './RemoteAccess';
 
 // Model configuration modal and sections
 export { ModelConfigModal } from './model-config';
