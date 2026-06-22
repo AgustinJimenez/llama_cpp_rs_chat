@@ -26,11 +26,11 @@ export function useMcpServers() {
       if (!resp.ok) throw new Error(await resp.text());
       const servers: McpServerConfig[] = await resp.json();
       setState((s) => ({ ...s, servers, isLoading: false }));
-    } catch (err) {
+    } catch (error) {
       setState((s) => ({
         ...s,
         isLoading: false,
-        error: err instanceof Error ? err.message : 'Failed to load MCP servers',
+        error: error instanceof Error ? error.message : 'Failed to load MCP servers',
       }));
     }
   }, []);
@@ -85,11 +85,11 @@ export function useMcpServers() {
       } else {
         setState((s) => ({ ...s, isRefreshing: false }));
       }
-    } catch (err) {
+    } catch (error) {
       setState((s) => ({
         ...s,
         isRefreshing: false,
-        error: err instanceof Error ? err.message : 'Failed to refresh MCP connections',
+        error: error instanceof Error ? error.message : 'Failed to refresh MCP connections',
       }));
     }
   }, []);

@@ -306,11 +306,11 @@ export function findPresetByName(generalName: string): ModelPreset | null {
   }
 
   // Normalize the name for fuzzy matching
-  const normalized = generalName.toLowerCase().replace(/[_\-\s]+/g, ' ');
+  const normalized = generalName.toLowerCase().replaceAll(/[_\-\s]+/g, ' ');
 
   // Try partial matches
   for (const [key, preset] of Object.entries(MODEL_PRESETS)) {
-    const normalizedKey = key.toLowerCase().replace(/[_\-\s]+/g, ' ');
+    const normalizedKey = key.toLowerCase().replaceAll(/[_\-\s]+/g, ' ');
     if (normalized.includes(normalizedKey) || normalizedKey.includes(normalized)) {
       return preset;
     }

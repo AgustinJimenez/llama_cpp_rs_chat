@@ -293,7 +293,7 @@ export function useFileAttachments(hasVision: boolean) {
       dragCounterRef.current = 0;
       setIsDragging(false);
 
-      const droppedFiles = Array.from(e.dataTransfer.files);
+      const droppedFiles = [...e.dataTransfer.files];
       if (droppedFiles.length > 0) {
         processFiles(droppedFiles);
       }
@@ -307,7 +307,7 @@ export function useFileAttachments(hasVision: boolean) {
 
   const handleFileInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFiles = Array.from(e.target.files || []);
+      const selectedFiles = [...(e.target.files || [])];
       if (selectedFiles.length > 0) {
         processFiles(selectedFiles);
       }

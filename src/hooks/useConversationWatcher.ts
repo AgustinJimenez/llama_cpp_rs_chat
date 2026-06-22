@@ -290,8 +290,8 @@ export function useConversationWatcher({
         }
 
         await reconcileUiStateFromMessages(nextMessages);
-      } catch (err) {
-        logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
+      } catch (error) {
+        logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', error);
       }
     };
 
@@ -321,8 +321,8 @@ export function useConversationWatcher({
           lastWsUpdateAtRef.current = Date.now();
           const message = JSON.parse(event.data);
           if (message.type === 'update') handleWsUpdate(message, updateOpts);
-        } catch (e) {
-          console.error('[ConversationWatcher] Failed to parse update:', e);
+        } catch (error) {
+          console.error('[ConversationWatcher] Failed to parse update:', error);
         }
       };
       ws.onerror = (error) => {

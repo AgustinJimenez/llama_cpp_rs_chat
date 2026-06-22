@@ -16,3 +16,9 @@ vision = ["llama-cpp-2/mtmd"]
 cuda = ["llama-cpp-2/cuda"]
 metal = ["llama-cpp-2/metal"]
 dynamic-backends = ["llama-cpp-2/dynamic-backends"]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

@@ -2,6 +2,6 @@
 # Goal: gradually lower toward frontend parity (120 lines, 15 complexity)
 # Current: relaxed to catch only the worst offenders first
 
-too-many-lines-threshold = 350
-cognitive-complexity-threshold = 50
+too-many-lines-threshold = 300
+cognitive-complexity-threshold = 45
 too-many-arguments-threshold = 8

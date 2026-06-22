@@ -18,7 +18,7 @@ interface MessageStatisticsProps {
 }
 
 function formatNumber(n: number): string {
-  return n.toLocaleString('en-US').replace(/,/g, '.');
+  return n.toLocaleString('en-US').replaceAll(',', '.');
 }
 
 const FINISH_REASON_BADGES: Record<string, { color: string; title: string; label: string }> = {

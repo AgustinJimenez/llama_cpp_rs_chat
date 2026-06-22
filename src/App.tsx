@@ -67,7 +67,7 @@ export const App = () => {
       );
     })();
     return () => {
-      unlisten.forEach((fn) => fn());
+      for (const fn of unlisten) fn();
     };
   }, [clearMessages, openAppSettings]);
 

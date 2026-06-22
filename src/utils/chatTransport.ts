@@ -157,14 +157,14 @@ function handleStreamMessage(
     if (message.type === 'abort') {
       markAborted();
     }
-  } catch (err) {
+  } catch (error) {
     if (state.wasAborted) {
       markAborted();
       return;
     }
     const errorMessage = 'Failed to parse server message';
     callbacks.onError(errorMessage);
-    settle(err instanceof Error ? err : new Error(errorMessage));
+    settle(error instanceof Error ? error : new Error(errorMessage));
   }
 }
 
@@ -454,9 +454,9 @@ class TauriChatTransport implements ChatTransport {
     // Start generation via invoke
     try {
       await invoke('generate_stream', { request });
-    } catch (err) {
+    } catch (error) {
       if (!settled && !wasAborted) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to start generation';
+        const errorMessage = error instanceof Error ? error.message : 'Failed to start generation';
         safeOnError(errorMessage);
         settle(new Error(errorMessage));
       }

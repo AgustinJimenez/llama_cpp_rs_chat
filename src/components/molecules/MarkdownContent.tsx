@@ -83,8 +83,8 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
       .then(({ svg: renderedSvg }) => {
         if (!cancelled) setSvg(renderedSvg);
       })
-      .catch((err) => {
-        if (!cancelled) setError(String(err));
+      .catch((error_) => {
+        if (!cancelled) setError(String(error_));
       });
     return () => {
       cancelled = true;
@@ -353,7 +353,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
   const handleDownload = useCallback(() => {
     const a = document.createElement('a');
     a.href = src;
-    a.download = `${alt.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
+    a.download = `${alt.replaceAll(/[^a-zA-Z0-9]/g, '_')}.jpg`;
     a.click();
   }, [src, alt]);
 

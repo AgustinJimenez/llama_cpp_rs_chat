@@ -58,7 +58,7 @@ function buildDynamicTagCleanup(tags?: ToolTags): RegExp | null {
   // Skip if Qwen/GLM <tool_call> (already covered by toolParser strip)
   if (tags.exec_open === '<tool_call>') return null;
 
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const esc = (s: string) => s.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const parts: string[] = [];
   // Strip tool call blocks: exec_open...exec_close
   parts.push(`${esc(tags.exec_open)}[\\s\\S]*?${esc(tags.exec_close)}`);
@@ -87,9 +87,9 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
   const dynamicCleanup = useMemo(() => buildDynamicTagCleanup(toolTags), [toolTags]);
   const effectiveContent = (harmony ? harmony.finalContent : message.content)
-    .replace(EOS_TOKEN_CLEANUP, '')
-    .replace(INTERNAL_SIGNALS_CLEANUP, '')
-    .replace(TOOL_LIMIT_WARNING_CLEANUP, '');
+    .replaceAll(EOS_TOKEN_CLEANUP, '')
+    .replaceAll(INTERNAL_SIGNALS_CLEANUP, '')
+    .replaceAll(TOOL_LIMIT_WARNING_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') {
@@ -111,12 +111,12 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       content = stripToolCalls(content);
     } else {
       content = content
-        .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
-        .replace(LFM2_RESULT_CLEANUP, '');
+        .replaceAll(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
+        .replaceAll(LFM2_RESULT_CLEANUP, '');
     }
-    content = content.replace(EOS_TOKEN_CLEANUP, '');
+    content = content.replaceAll(EOS_TOKEN_CLEANUP, '');
     // Dynamic: strip tool call/response blocks + channel/turn tags from active model
-    content = content.replace(CHANNEL_TAG_CLEANUP, '').replace(TURN_TAG_CLEANUP, '');
+    content = content.replaceAll(CHANNEL_TAG_CLEANUP, '').replaceAll(TURN_TAG_CLEANUP, '');
     if (dynamicCleanup) {
       content = content.replace(dynamicCleanup, '');
     }
@@ -177,17 +177,17 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       .replace(THINKING_UNCLOSED_REGEX, '')
       .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
       .replace(THINKING_ORPHAN_OPEN_REGEX, '')
-      .replace(EXEC_CLEANUP, '')
-      .replace(SYS_OUTPUT_CLEANUP, '')
-      .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
-      .replace(LFM2_RESULT_CLEANUP, '')
-      .replace(MISTRAL_CALL_CLEANUP, '')
-      .replace(MISTRAL_RESULT_CLEANUP, '')
-      .replace(GLM_VISION_CLEANUP, '')
-      .replace(EOS_TOKEN_CLEANUP, '')
+      .replaceAll(EXEC_CLEANUP, '')
+      .replaceAll(SYS_OUTPUT_CLEANUP, '')
+      .replaceAll(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
+      .replaceAll(LFM2_RESULT_CLEANUP, '')
+      .replaceAll(MISTRAL_CALL_CLEANUP, '')
+      .replaceAll(MISTRAL_RESULT_CLEANUP, '')
+      .replaceAll(GLM_VISION_CLEANUP, '')
+      .replaceAll(EOS_TOKEN_CLEANUP, '')
       // Dynamic: strip tool call/response blocks using active model tags
-      .replace(CHANNEL_TAG_CLEANUP, '')
-      .replace(TURN_TAG_CLEANUP, '');
+      .replaceAll(CHANNEL_TAG_CLEANUP, '')
+      .replaceAll(TURN_TAG_CLEANUP, '');
     if (dynamicCleanup) {
       result = result.replace(dynamicCleanup, '');
     }

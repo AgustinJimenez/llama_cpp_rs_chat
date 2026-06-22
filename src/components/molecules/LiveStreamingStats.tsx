@@ -25,7 +25,7 @@ const LiveTokenCounter = ({
 }) => {
   const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
-  const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
+  const fmt = (n: number) => n.toLocaleString('en-US').replaceAll(',', '.');
   return (
     <>
       <button
@@ -237,8 +237,8 @@ const CompactButton = ({
       await compactConversation(conversationId);
       toast.success(t('toast.conversationCompacted'), { duration: 2000 });
       window.dispatchEvent(new CustomEvent('conversation-compacted'));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('toast.compactionFailed'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('toast.compactionFailed'));
     } finally {
       setIsCompacting(false);
     }

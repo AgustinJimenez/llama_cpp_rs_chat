@@ -194,15 +194,15 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
   const lines: string[] = ['{'];
   const entries = Object.entries(args);
 
-  entries.forEach(([key, value], index) => {
+  for (const [index, [key, value]] of entries.entries()) {
     const isLast = index === entries.length - 1;
 
     if (typeof value === 'string') {
       const unescaped = value
-        .replace(/\\n/g, '\n')
-        .replace(/\\"/g, '"')
-        .replace(/\\t/g, '\t')
-        .replace(/\\\\/g, '\\');
+        .replaceAll('\\n', '\n')
+        .replaceAll('\\"', '"')
+        .replaceAll('\\t', '\t')
+        .replaceAll('\\\\', '\\');
 
       if (unescaped.includes('\n')) {
         lines.push(`  "${key}":`);
@@ -218,7 +218,7 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
     } else {
       lines.push(`  "${key}": ${JSON.stringify(value)}${isLast ? '' : ','}`);
     }
-  });
+  }
 
   lines.push('}');
   return lines.join('\n');

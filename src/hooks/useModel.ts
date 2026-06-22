@@ -68,8 +68,8 @@ export const useModel = () => {
         last_used: null,
         memory_usage_mb: null,
       });
-    } catch (err) {
-      console.warn('Hard unload failed', err);
+    } catch (error_) {
+      console.warn('Hard unload failed', error_);
     }
   }, []);
 
@@ -116,9 +116,9 @@ export const useModel = () => {
       // Backend handles crash recovery (worker_bridge.rs: CrashRecoveryCtx)
       // — auto-restarts worker, reloads model, continues generation.
       // Frontend just needs to reflect the status it polls from the server.
-    } catch (err) {
+    } catch (error_) {
       setError('Network error while fetching model status');
-      console.error('Model status fetch error:', err);
+      console.error('Model status fetch error:', error_);
       setHasStatusError(true);
     }
   }, []);
@@ -187,8 +187,8 @@ export const useModel = () => {
         // Refresh status even when loading fails to ensure UI is accurate
         await refreshStatusSafe();
         return { success: false, message: data.message };
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      } catch (error_) {
+        const errorMessage = error_ instanceof Error ? error_.message : 'Unknown error occurred';
         setError(errorMessage);
         setHasStatusError(true);
         // Refresh status on error to ensure UI is accurate
@@ -223,8 +223,8 @@ export const useModel = () => {
       setError(data.message);
       setHasStatusError(true);
       return { success: false, message: data.message };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+    } catch (error_) {
+      const errorMessage = error_ instanceof Error ? error_.message : 'Unknown error occurred';
       setError(errorMessage);
       setHasStatusError(true);
       // Refresh status on error to ensure UI is accurate

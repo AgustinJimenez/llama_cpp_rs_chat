@@ -129,9 +129,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     try {
       const parsed = JSON.parse(text) as Record<string, unknown>;
       if (typeof parsed.message === 'string') throw new Error(parsed.message);
-    } catch (e) {
-      if (e instanceof SyntaxError) throw new Error(text || `HTTP ${response.status}`);
-      throw e;
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(text || `HTTP ${response.status}`);
+      throw error;
     }
     throw new Error(text || `HTTP ${response.status}`);
   }
@@ -597,9 +597,9 @@ export function startHubDownload(
           filename,
           destination,
         });
-      } catch (err) {
+      } catch (error) {
         if (!controller.signal.aborted) {
-          onProgress({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          onProgress({ type: 'error', message: error instanceof Error ? error.message : String(error) });
           unlisten?.();
         }
       }
@@ -665,9 +665,9 @@ export function startHubDownload(
         }
       }
     })
-    .catch((err: unknown) => {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        onProgress({ type: 'error', message: String(err) });
+    .catch((error: unknown) => {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        onProgress({ type: 'error', message: String(error) });
       }
     });
 

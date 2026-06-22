@@ -120,7 +120,7 @@ export const ProviderSelector = ({
           setProviders((current) => {
             const merged = new Map(current.map((p) => [p.id, p]));
             for (const p of configured.providers || []) merged.set(p.id, p);
-            return Array.from(merged.values());
+            return [...merged.values()];
           });
           setApiKeyInputs(parseApiKeys(config.provider_api_keys));
         }
@@ -137,7 +137,7 @@ export const ProviderSelector = ({
           setProviders((current) => {
             const merged = new Map(current.map((p) => [p.id, p]));
             for (const p of (data.providers || []) as Provider[]) merged.set(p.id, p);
-            return Array.from(merged.values());
+            return [...merged.values()];
           });
           // Populate existing API key inputs (keys are masked but base_url is useful)
           const keyMap: ApiKeyMap = {};
@@ -164,7 +164,7 @@ export const ProviderSelector = ({
             const merged = new Map(current.map((p) => [p.id, p]));
             for (const p of cli.providers || []) merged.set(p.id, p);
             // Replace old CLI entries with fresh data
-            return Array.from(merged.values());
+            return [...merged.values()];
           });
         }
       } else {
@@ -174,7 +174,7 @@ export const ProviderSelector = ({
           setProviders((current) => {
             const merged = new Map(current.map((p) => [p.id, p]));
             for (const p of (data.providers || []) as Provider[]) merged.set(p.id, p);
-            return Array.from(merged.values());
+            return [...merged.values()];
           });
         }
       }
@@ -231,7 +231,7 @@ export const ProviderSelector = ({
         setProviders((current) => {
           const merged = new Map(current.map((p) => [p.id, p]));
           for (const p of configured.providers || []) merged.set(p.id, p);
-          return Array.from(merged.values());
+          return [...merged.values()];
         });
       } else {
         await fetch('/api/config/provider-keys', {
@@ -249,7 +249,7 @@ export const ProviderSelector = ({
         setProviders((current) => {
           const merged = new Map(current.map((p) => [p.id, p]));
           for (const p of (data.providers || []) as Provider[]) merged.set(p.id, p);
-          return Array.from(merged.values());
+          return [...merged.values()];
         });
       }
 

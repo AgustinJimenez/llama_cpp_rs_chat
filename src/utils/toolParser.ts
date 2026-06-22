@@ -288,7 +288,7 @@ const lfm2Parser: ToolParser = {
  */
 function stripThinkingBlocks(text: string): string {
   return text
-    .replace(/<think>[\s\S]*?<\/think>/g, '') // closed think blocks
+    .replaceAll(/<think>[\s\S]*?<\/think>/g, '') // closed think blocks
     .replace(/<think>[\s\S]*$/, ''); // unclosed think block (still streaming)
 }
 
@@ -317,13 +317,13 @@ export function autoParseToolCalls(text: string): ToolCall[] {
  */
 export function stripToolCalls(text: string): string {
   return text
-    .replace(/\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}/g, '') // Mistral v2 bracket calls
-    .replace(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '') // Mistral calls
-    .replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
-    .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
-    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool calls
-    .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen/GLM tool responses
-    .replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, '') // LFM2 tool calls
-    .replace(/<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g, '') // LFM2 tool responses
+    .replaceAll(/\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}/g, '') // Mistral v2 bracket calls
+    .replaceAll(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '') // Mistral calls
+    .replaceAll(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
+    .replaceAll(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
+    .replaceAll(/<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool calls
+    .replaceAll(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen/GLM tool responses
+    .replaceAll(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, '') // LFM2 tool calls
+    .replaceAll(/<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g, '') // LFM2 tool responses
     .trim();
 }

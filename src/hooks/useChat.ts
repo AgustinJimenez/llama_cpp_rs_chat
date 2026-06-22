@@ -221,12 +221,12 @@ export function useChat() {
         setMessages(filtered);
         setCurrentConversationId(filename);
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load conversation';
+    } catch (error_) {
+      const errorMessage = error_ instanceof Error ? error_.message : 'Failed to load conversation';
       setError(errorMessage);
       const display = `Failed to load conversation: ${errorMessage}`;
       toast.error(display, { duration: 5000 });
-      logToastError('useChat.loadConversation', display, err);
+      logToastError('useChat.loadConversation', display, error_);
     } finally {
       setIsLoading(false);
     }
@@ -433,8 +433,8 @@ export function useChat() {
         try {
           await truncateConversation(currentConversationId, fromSequence);
           providerSessionRef.current = null;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
+        } catch (error_) {
+          const msg = error_ instanceof Error ? error_.message : 'Failed to truncate conversation';
           toast.error(msg, { duration: 5000 });
           return;
         }
@@ -483,8 +483,8 @@ export function useChat() {
         try {
           await truncateConversation(currentConversationId, fromSequence);
           providerSessionRef.current = null;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
+        } catch (error_) {
+          const msg = error_ instanceof Error ? error_.message : 'Failed to truncate conversation';
           toast.error(msg, { duration: 5000 });
           return;
         }

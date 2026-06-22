@@ -451,7 +451,7 @@ const SliderRow: React.FC<SliderRowProps> = ({
           if (el) {
             el.style.setProperty('--thumb-color', hexColor);
             // Inline the thumb color via a style element scoped to this slider
-            const id = `slider-${label.replace(/[^a-z]/gi, '')}`;
+            const id = `slider-${label.replaceAll(/[^a-z]/gi, '')}`;
             el.id = id;
             let style = document.getElementById(`style-${id}`);
             if (!style) {

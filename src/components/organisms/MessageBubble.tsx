@@ -32,7 +32,7 @@ function groupConsecutiveToolCalls(segments: MessageSegment[]): RenderedSegment[
       if (run.length >= TOOL_GROUP_THRESHOLD) {
         result.push({ type: 'tool_call_group', toolCalls: run });
       } else {
-        run.forEach((tc) => result.push({ type: 'tool_call', toolCall: tc }));
+        for (const tc of run) result.push({ type: 'tool_call', toolCall: tc });
       }
       i = j;
     } else {

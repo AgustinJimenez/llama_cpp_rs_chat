@@ -158,7 +158,7 @@ export class RemoteGenerationStream implements GenerationStream {
         const settle = (fn: () => void) => {
           if (settled) return;
           settled = true;
-          unlisteners.forEach((ul) => ul());
+          for (const ul of unlisteners) ul();
           fn();
         };
 
@@ -230,16 +230,16 @@ export class RemoteGenerationStream implements GenerationStream {
           sessionId: sessionRef.current || null,
           imageData: request.imageData && request.imageData.length > 0 ? request.imageData : null,
           params: providerParams && Object.keys(providerParams).length > 0 ? providerParams : null,
-        }).catch((err: unknown) => {
-          settle(() => reject(err instanceof Error ? err : new Error(String(err))));
+        }).catch((error: unknown) => {
+          settle(() => reject(error instanceof Error ? error : new Error(String(error))));
         });
       });
-    } catch (err) {
+    } catch (error) {
       const isAbort =
-        (err instanceof DOMException && err.name === 'AbortError') ||
-        (err instanceof Error && err.message.includes('aborted'));
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        (error instanceof Error && error.message.includes('aborted'));
       if (!isAbort) {
-        const msg = err instanceof Error ? err.message : 'Provider request failed';
+        const msg = error instanceof Error ? error.message : 'Provider request failed';
         callbacks.onError(msg);
         toast.error(msg, { duration: TOAST_DURATION_MS });
       }
@@ -369,12 +369,12 @@ export class RemoteGenerationStream implements GenerationStream {
           });
         }
       }
-    } catch (err) {
+    } catch (error) {
       const isAbort =
-        (err instanceof DOMException && err.name === 'AbortError') ||
-        (err instanceof Error && err.message.includes('aborted'));
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        (error instanceof Error && error.message.includes('aborted'));
       if (!isAbort) {
-        const msg = err instanceof Error ? err.message : 'Provider request failed';
+        const msg = error instanceof Error ? error.message : 'Provider request failed';
         callbacks.onError(msg);
         toast.error(msg, { duration: TOAST_DURATION_MS });
       }

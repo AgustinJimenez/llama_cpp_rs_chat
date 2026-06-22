@@ -310,17 +310,17 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
           },
           abortControllerRef.current?.signal,
         );
-      } catch (err) {
+      } catch (error) {
         if (streamSeqRef.current !== streamSeq) return;
         isStreamingRef.current = false;
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
         if (!isAbortError(errorMessage)) {
           setError(errorMessage);
           toast.error(friendlyError(errorMessage), {
             id: 'stream-error',
             duration: TOAST_DURATION_MS,
           });
-          logToastError('useChat.startGeneration', errorMessage, err);
+          logToastError('useChat.startGeneration', errorMessage, error);
         }
         setIsLoading(false);
         // Remove empty assistant message on abort

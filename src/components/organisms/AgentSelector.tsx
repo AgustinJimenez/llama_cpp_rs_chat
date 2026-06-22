@@ -211,7 +211,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
 
   const maxContextSize = useMemo(() => {
     if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
-    const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+    const parsed = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
     return isNaN(parsed) ? DEFAULT_MAX_CONTEXT : parsed;
   }, [modelInfo?.context_length]);
 
@@ -256,7 +256,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
         const merged = new Map<string, Provider>();
         for (const p of configured.providers ?? []) merged.set(p.id, p);
         for (const p of cli.providers ?? []) merged.set(p.id, p);
-        setProviders(Array.from(merged.values()));
+        setProviders([...merged.values()]);
         setApiKeyInputs(parseApiKeys(config.provider_api_keys));
         return;
       }
@@ -272,7 +272,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
       const merged = new Map<string, Provider>();
       for (const p of (configured.providers ?? []) as Provider[]) merged.set(p.id, p);
       for (const p of (cli.providers ?? []) as Provider[]) merged.set(p.id, p);
-      setProviders(Array.from(merged.values()));
+      setProviders([...merged.values()]);
       setApiKeyInputs(parseApiKeys(keys));
     };
     loadFormData().catch(() => {});
@@ -352,7 +352,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
   // ── Set context size to model max on metadata load ────────────────────────
   useEffect(() => {
     if (editingAgent || !modelInfo?.context_length) return;
-    const max = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+    const max = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
     if (!isNaN(max)) setContextSize(max);
   }, [modelInfo, editingAgent]);
 
@@ -685,7 +685,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
         setProviders((current) => {
           const merged = new Map(current.map((p) => [p.id, p]));
           for (const p of configured.providers || []) merged.set(p.id, p);
-          return Array.from(merged.values());
+          return [...merged.values()];
         });
         toast.success('Provider saved');
         return;
@@ -704,7 +704,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
       setProviders((current) => {
         const merged = new Map(current.map((p) => [p.id, p]));
         for (const p of (data.providers || []) as Provider[]) merged.set(p.id, p);
-        return Array.from(merged.values());
+        return [...merged.values()];
       });
       toast.success('Provider saved');
     } catch {

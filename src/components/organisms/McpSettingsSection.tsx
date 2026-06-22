@@ -75,8 +75,8 @@ export const McpSettingsSection: React.FC = () => {
       setFormCommand('');
       setFormArgs('');
       setFormUrl('');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save server');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save server');
     }
   };
 
@@ -84,16 +84,16 @@ export const McpSettingsSection: React.FC = () => {
     try {
       await deleteServer(server.id);
       toast.success(`Removed "${server.name}"`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete server');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete server');
     }
   };
 
   const handleToggle = async (server: McpServerConfig) => {
     try {
       await toggleServer(server.id, !server.enabled);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to toggle server');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to toggle server');
     }
   };
 
@@ -101,8 +101,8 @@ export const McpSettingsSection: React.FC = () => {
     try {
       await refreshConnections();
       toast.success('MCP connections refreshed');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to refresh');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to refresh');
     }
   };
 

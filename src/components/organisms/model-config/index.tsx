@@ -129,7 +129,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   const maxContextSize = useMemo(() => {
     if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
-    const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+    const parsed = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
     return isNaN(parsed) ? DEFAULT_MAX_CONTEXT : parsed;
   }, [modelInfo?.context_length]);
 
@@ -222,7 +222,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   useEffect(() => {
     if (savedConfigLoaded.current) return;
     if (modelInfo?.context_length) {
-      const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+      const maxContext = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
       if (!isNaN(maxContext)) {
         setContextSize(maxContext);
       }

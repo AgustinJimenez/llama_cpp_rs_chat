@@ -110,7 +110,7 @@ function createMessageIfValid(
  * Check if content only contains tool calls (no meaningful text)
  */
 function isToolCallOnly(content: string): boolean {
-  const contentWithoutThinking = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  const contentWithoutThinking = content.replaceAll(/<think>[\s\S]*?<\/think>/g, '').trim();
 
   const hasToolCall =
     contentWithoutThinking.includes('<tool_call>') ||
@@ -120,9 +120,9 @@ function isToolCallOnly(content: string): boolean {
   if (!hasToolCall) return false;
 
   const contentWithoutTools = contentWithoutThinking
-    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-    .replace(/<function=[\s\S]*?<\/function>/g, '')
-    .replace(/\[TOOL_CALLS\][\s\S]*?\[\/ARGS\]/g, '')
+    .replaceAll(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+    .replaceAll(/<function=[\s\S]*?<\/function>/g, '')
+    .replaceAll(/\[TOOL_CALLS\][\s\S]*?\[\/ARGS\]/g, '')
     .trim();
 
   return !contentWithoutTools;

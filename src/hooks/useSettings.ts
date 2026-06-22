@@ -15,8 +15,8 @@ export function useSettings() {
     try {
       const samplerConfig = await getConfig();
       setConfig(samplerConfig);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load configuration';
+    } catch (error_) {
+      const errorMessage = error_ instanceof Error ? error_.message : 'Failed to load configuration';
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -30,8 +30,8 @@ export function useSettings() {
     try {
       await saveConfig(newConfig);
       setConfig(newConfig);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update configuration';
+    } catch (error_) {
+      const errorMessage = error_ instanceof Error ? error_.message : 'Failed to update configuration';
       setError(errorMessage);
     } finally {
       setIsLoading(false);

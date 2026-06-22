@@ -171,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     try {
       if (conversationToDelete.name === '__bulk_delete__') {
         // Bulk delete all selected conversations in parallel
-        const toDelete = Array.from(selectedConversations);
+        const toDelete = [...selectedConversations];
         await Promise.allSettled(toDelete.map((name) => deleteConversation(name)));
         setConversations((prev) => prev.filter((c) => !selectedConversations.has(c.name)));
         if (currentConversationId && selectedConversations.has(currentConversationId)) {

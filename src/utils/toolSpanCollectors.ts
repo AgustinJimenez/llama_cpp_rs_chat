@@ -454,7 +454,7 @@ const MISTRAL_PAIR_RE =
  * Returns content with tool calls placed after each thinking section instead of inside.
  */
 export function moveToolsOutOfThinking(content: string): string {
-  return content.replace(/<think>([\s\S]*?)<\/think>/g, (_match, inner: string) => {
+  return content.replaceAll(/<think>([\s\S]*?)<\/think>/g, (_match, inner: string) => {
     const toolParts: string[] = [];
     let cleaned = inner;
 
@@ -523,7 +523,7 @@ const stripChannelTags = (text: string): string =>
 
 export function buildSegments(rawContent: string, toolTags?: ToolTags): MessageSegment[] {
   // Strip EOS tokens; wrap prefill-thinking (Qwen3 injects <think> via template).
-  const content = rawContent.replace(/<\|im_end\|>/g, '').trimEnd();
+  const content = rawContent.replaceAll('<|im_end|>', '').trimEnd();
   const preprocessed = moveToolsOutOfThinking(wrapPrefillThinking(content));
 
   // Phase 1: collect thinking spans at their real positions so they render chronologically
@@ -579,8 +579,8 @@ export function buildSegments(rawContent: string, toolTags?: ToolTags): MessageS
     if (span.start > cursor) {
       let text = preprocessed
         .slice(cursor, span.start)
-        .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
-        .replace(THINKING_ORPHAN_OPEN_REGEX, '')
+        .replaceAll(THINKING_ORPHAN_CLOSE_REGEX, '')
+        .replaceAll(THINKING_ORPHAN_OPEN_REGEX, '')
         .trim();
       if (needsChannelStrip) text = stripChannelTags(text).trim();
       if (text) result.push({ type: 'text', content: text });
@@ -595,8 +595,8 @@ export function buildSegments(rawContent: string, toolTags?: ToolTags): MessageS
   if (cursor < trailingEnd) {
     let text = preprocessed
       .slice(cursor, trailingEnd)
-      .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
-      .replace(THINKING_ORPHAN_OPEN_REGEX, '')
+      .replaceAll(THINKING_ORPHAN_CLOSE_REGEX, '')
+      .replaceAll(THINKING_ORPHAN_OPEN_REGEX, '')
       .trim();
     if (needsChannelStrip) text = stripChannelTags(text).trim();
     if (text) result.push({ type: 'text', content: text });

@@ -530,8 +530,8 @@ const DownloadsTab = ({
   onCancel: (key: string) => void;
 }) => {
   const { t } = useTranslation();
-  const pendingList = Array.from(pendingDownloads.values());
-  const completedList = Array.from(completedDownloads.values());
+  const pendingList = [...pendingDownloads.values()];
+  const completedList = [...completedDownloads.values()];
   const isEmpty = pendingList.length === 0 && completedList.length === 0;
 
   if (isEmpty) {
@@ -668,8 +668,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
         await saveConfig({ ...cfg, models_directory: dir });
         setModelsDirectory(dir);
       }
-    } catch (err) {
-      console.error('Failed to pick directory:', err);
+    } catch (error_) {
+      console.error('Failed to pick directory:', error_);
     } finally {
       setIsPicking(false);
     }
@@ -696,8 +696,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
         .then(() => {
           onClose();
         })
-        .catch((err) => {
-          console.error('Failed to load model:', err);
+        .catch((error_) => {
+          console.error('Failed to load model:', error_);
         });
     },
     [onClose],

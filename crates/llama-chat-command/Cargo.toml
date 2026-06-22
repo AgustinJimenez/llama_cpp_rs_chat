@@ -14,3 +14,9 @@ sysinfo = "0.33"
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

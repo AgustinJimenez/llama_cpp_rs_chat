@@ -154,8 +154,8 @@ export const BrowserView = React.memo(() => {
             height: args.height,
           });
         }
-      } catch (e) {
-        if (!cancelled) console.error('browser panel:', e);
+      } catch (error) {
+        if (!cancelled) console.error('browser panel:', error);
       }
     };
 
@@ -319,7 +319,7 @@ export const BrowserView = React.memo(() => {
   const findInputRef = useRef<HTMLInputElement>(null);
   const handleFind = useCallback(async () => {
     if (!TAURI || !findQuery.trim()) return;
-    const escaped = findQuery.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const escaped = findQuery.replaceAll('\\', '\\\\').replaceAll('\'', "\\'");
     await tauriInvoke('browser_panel_go_back').catch(() => {}); // dummy to check panel exists
     // Use window.find() — built-in browser search
     const js = `window.find('${escaped}', false, false, true)`;

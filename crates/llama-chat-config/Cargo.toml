@@ -7,3 +7,9 @@ edition = "2021"
 llama-chat-types = { path = "../llama-chat-types" }
 llama-chat-db = { path = "../llama-chat-db" }
 serde_json = "1.0"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

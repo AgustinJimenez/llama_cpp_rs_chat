@@ -33,7 +33,7 @@ export function extractBalancedJson(
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function parsePythonValue(raw: string): unknown {
@@ -44,7 +44,7 @@ function parsePythonValue(raw: string): unknown {
     (value.startsWith("'") && value.endsWith("'"))
   ) {
     const unquoted = value.slice(1, -1);
-    return unquoted.replace(/\\(['"\\nrt])/g, (_, ch) => {
+    return unquoted.replaceAll(/\\(['"\\nrt])/g, (_, ch) => {
       if (ch === 'n') return '\n';
       if (ch === 'r') return '\r';
       if (ch === 't') return '\t';
@@ -63,7 +63,7 @@ function parsePythonValue(raw: string): unknown {
       return JSON.parse(value);
     } catch {
       try {
-        const replaced = value.includes('"') ? value : value.replace(/'/g, '"');
+        const replaced = value.includes('"') ? value : value.replaceAll('\'', '"');
         return JSON.parse(replaced);
       } catch {
         return value;

@@ -43,7 +43,7 @@ function extractTrailing(segments: MessageSegment[], segBody: string) {
   if (idx < 0) return;
   const trailing = segBody
     .slice(idx + END_TAG_LENGTH)
-    .replace(/<\|end\|>/g, '')
+    .replaceAll('<|end|>', '')
     .trim();
   if (trailing) pushText(segments, trailing);
 }
@@ -136,7 +136,7 @@ export function parseHarmonyContent(raw: string): HarmonyParsed | null {
 
   const firstStart = raw.indexOf('<|start|>');
   if (firstStart > 0) {
-    pushText(acc.segments, raw.slice(0, firstStart).replace(/<\|end\|>/g, ''));
+    pushText(acc.segments, raw.slice(0, firstStart).replaceAll('<|end|>', ''));
   }
 
   const segmentRegex = new RegExp(HARMONY_SEGMENT_PATTERN.source, 'g');
@@ -174,7 +174,7 @@ export function parseHarmonyContent(raw: string): HarmonyParsed | null {
     }
   }
 
-  const finalContent = acc.finalParts.join('\n') || raw.replace(/<\|[^|]*\|>/g, ' ').trim();
+  const finalContent = acc.finalParts.join('\n') || raw.replaceAll(/<\|[^|]*\|>/g, ' ').trim();
   if (finalContent.trim()) {
     acc.segments.push({ type: 'text', content: finalContent });
   }

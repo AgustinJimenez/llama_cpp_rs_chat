@@ -94,9 +94,9 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
 
         return read();
       })
-      .catch((e) => {
+      .catch((error) => {
         setInstallState('error');
-        setInstallError(String(e));
+        setInstallError(String(error));
       });
   }, []);
 
