@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { getAuthHeaders } from '../../utils/remoteAuth';
 
+const TOKEN_COPIED_RESET_MS = 2000;
+
 function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers: { ...getAuthHeaders(), ...(init?.headers as Record<string, string> | undefined) } });
 }
@@ -71,7 +73,7 @@ export const RemoteAccess = (): JSX.Element => {
     if (!status?.token) return;
     void navigator.clipboard.writeText(status.token).then(() => {
       setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 2000);
+      setTimeout(() => setTokenCopied(false), TOKEN_COPIED_RESET_MS);
     });
   }, [status?.token]);
 
@@ -81,6 +83,20 @@ export const RemoteAccess = (): JSX.Element => {
 
   const qrUrl = upnpResult?.public_qr ?? status?.lan_qr;
   const displayUrl = upnpResult?.public_url ?? status?.lan_url;
+  const copyLabel = tokenCopied ? t('common.copied') : t('common.copy');
+  const upnpBtnLabel = upnpLoading ? t('common.loading') : t('remoteAccess.upnpEnable');
+  const upnpErrorMsg = upnpResult?.error ?? t('remoteAccess.upnpFailed');
+
+  const qrSection = qrUrl ? (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-white p-4">
+      <QRCodeSVG value={qrUrl} size={180} />
+      {displayUrl && <p className="break-all text-center font-mono text-xs text-foreground">{displayUrl}</p>}
+    </div>
+  ) : (
+    <div className="rounded-lg border border-border bg-muted/40 p-4 text-center text-sm text-muted-foreground">
+      {t('remoteAccess.noLanUrl')}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -90,17 +106,7 @@ export const RemoteAccess = (): JSX.Element => {
         </p>
       </div>
 
-      {/* QR code */}
-      {qrUrl ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-white p-4">
-          <QRCodeSVG value={qrUrl} size={180} />
-          {displayUrl ? <p className="break-all text-center font-mono text-xs text-foreground">{displayUrl}</p> : null}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border bg-muted/40 p-4 text-center text-sm text-muted-foreground">
-          {t('remoteAccess.noLanUrl')}
-        </div>
-      )}
+      {qrSection}
 
       {/* Token */}
       <div>
@@ -116,7 +122,7 @@ export const RemoteAccess = (): JSX.Element => {
             onClick={handleCopyToken}
             className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
           >
-            {tokenCopied ? t('common.copied') : t('common.copy')}
+            {copyLabel}
           </button>
           <button
             type="button"
@@ -141,19 +147,25 @@ export const RemoteAccess = (): JSX.Element => {
             disabled={upnpLoading}
             className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
           >
-            {upnpLoading ? t('common.loading') : t('remoteAccess.upnpEnable')}
+            {upnpBtnLabel}
           </button>
-          {upnpResult?.success ? <button
+          {upnpResult?.success && (
+            <button
               type="button"
               onClick={handleDisableUpnp}
               disabled={upnpLoading}
               className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
             >
               {t('remoteAccess.upnpDisable')}
-            </button> : null}
+            </button>
+          )}
         </div>
-        {upnpResult && !upnpResult.success ? <p className="mt-1 text-xs text-red-400">{upnpResult.error ?? t('remoteAccess.upnpFailed')}</p> : null}
-        {upnpResult?.success && upnpResult.public_url ? <p className="mt-1 text-xs text-green-400">{t('remoteAccess.upnpActive', { url: upnpResult.public_url })}</p> : null}
+        {upnpResult && !upnpResult.success && (
+          <p className="mt-1 text-xs text-red-400">{upnpErrorMsg}</p>
+        )}
+        {upnpResult?.public_url && (
+          <p className="mt-1 text-xs text-green-400">{t('remoteAccess.upnpActive', { url: upnpResult.public_url })}</p>
+        )}
       </div>
     </div>
   );

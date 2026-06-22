@@ -646,12 +646,13 @@ pub async fn serve(
     use hyper::service::{make_service_fn, service_fn};
     use hyper::Server;
 
-    let make_svc = make_service_fn(move |_conn| {
+    let make_svc = make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
+        let peer_addr = conn.remote_addr();
         let worker_pool = worker_pool.clone();
         let db = db.clone();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                dispatch(req, Some(worker_pool.clone()), db.clone())
+                dispatch(req, Some(worker_pool.clone()), db.clone(), peer_addr)
             }))
         }
     });
