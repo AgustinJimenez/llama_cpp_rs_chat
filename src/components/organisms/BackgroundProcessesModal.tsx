@@ -39,7 +39,7 @@ function formatElapsed(startedAt: number): string {
 }
 
 function truncateCommand(cmd: string, maxLen = 60): string {
-  return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}…` : cmd;
+  return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}...` : cmd;
 }
 
 const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => {
@@ -86,18 +86,15 @@ const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => 
     );
   }
 
+  // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- terminal output lines, no stable ID
+  const lineElements = lines.map((line, i) => <div key={`line-${i}`} className="whitespace-pre-wrap break-all leading-relaxed">{line}</div>); // eslint-disable-line react/no-array-index-key
+
   return (
     <div
       className="mt-2 max-h-52 overflow-y-auto rounded bg-black/40 px-3 py-2 font-mono text-xs text-green-300"
       onScroll={handleScroll}
     >
-      {/* eslint-disable react/no-array-index-key */}
-      {lines.map((line, i) => (
-        <div key={`line-${i}`} className="whitespace-pre-wrap break-all leading-relaxed">
-          {line}
-        </div>
-      ))}
-      {/* eslint-enable react/no-array-index-key */}
+      {lineElements}
       <div ref={bottomRef} />
     </div>
   );

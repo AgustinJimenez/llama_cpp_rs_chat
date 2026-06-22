@@ -141,8 +141,7 @@ function useElapsedTime(isActive: boolean): number {
   const [elapsed, setElapsed] = React.useState(0);
   const deactivateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Single setElapsed per branch (active vs debounced deactivation) — not cascading
-  // eslint-disable-next-line react-doctor/no-effect-event-handler
+  // eslint-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-effect-event-handler -- single state, conditional branches
   React.useEffect(() => {
     if (isActive) {
       // Cancel any pending deactivation

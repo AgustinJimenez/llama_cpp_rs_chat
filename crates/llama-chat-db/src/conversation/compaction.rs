@@ -3,9 +3,9 @@ use super::*;
 impl Database {
     /// Record a compaction summary covering all messages up to `covers_to_sequence`.
     ///
-    /// Any previous summary for this conversation is replaced — each new summary is
-    /// comprehensive (the compaction engine re-summarizes the full history), so older
-    /// partial summaries are redundant.
+    /// Any previous summary is replaced — the new summary is produced by merging the
+    /// old summary with the newly compacted messages (incremental update), so the single
+    /// stored summary always represents the full anchored history.
     ///
     /// Returns the number of user/assistant messages in the covered range.
     pub fn compact_messages(

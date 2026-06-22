@@ -61,7 +61,7 @@ const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }>
         .split('_')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
-      return n > 1 ? `${label} ×${n}` : label;
+      return n > 1 ? `${label} x${n}` : label;
     })
     .join(', ');
 
@@ -114,18 +114,12 @@ interface MessageBubbleProps {
   isLastMessage?: boolean;
 }
 
-/**
- * Compaction summary divider — shows when older messages have been summarized.
- */
-/**
- * System message component (errors and warnings).
- */
 const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError: boolean }> = ({
   message,
   cleanContent,
   isError,
 }) => {
-  const label = isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM';
+  const label = isError ? 'SYSTEM ERROR' : 'SYSTEM';
   return (
     <div
       className="flex w-full justify-center"
@@ -150,9 +144,6 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
   );
 };
 
-/**
- * Collapsed system prompt display.
- */
 const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> = ({
   message,
   cleanContent,
@@ -176,9 +167,6 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
   );
 };
 
-/**
- * User message component with inline edit support.
- */
 const UserMessage: React.FC<{
   message: Message;
   cleanContent: string;
@@ -190,8 +178,8 @@ const UserMessage: React.FC<{
   const { t } = useTranslation();
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
-  // eslint-disable-next-line react/hook-use-state
-  const [isEditing, setIsEditing] = useState(false);
+  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- false positive: never read in return because if-guard returns alternate view
+  const [isEditing, setIsEditing] = useState(false); // eslint-disable-line react/hook-use-state
   const [editContent, setEditContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -231,6 +219,16 @@ const UserMessage: React.FC<{
   };
 
   const canEdit = onEditMessage && messageIndex != null && !isGenerating && modelReady;
+
+  const renderImage = (img: string, i: number) => {
+    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- base64 images have no stable ID
+    return <img key={i} src={img} alt={`Attached ${i + 1}`} className="max-h-64 max-w-full rounded-lg object-contain" />;
+  };
+  const imageElements = message.image_data?.length ? (
+    <div className="mb-2 flex flex-wrap gap-2">
+      {message.image_data.map((img, i) => renderImage(img, i))}
+    </div>
+  ) : null;
 
   if (isEditing) {
     return (
@@ -274,7 +272,6 @@ const UserMessage: React.FC<{
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
     >
-      {/* Edit button — appears on hover */}
       {!!canEdit && (
         <button
           onClick={handleStartEdit}
@@ -287,21 +284,7 @@ const UserMessage: React.FC<{
       )}
       <div className="min-w-0 max-w-[85%]">
         <div className="flat-message-user px-4 py-3">
-          {/* Attached images */}
-          {!!message.image_data?.length && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {/* eslint-disable react/no-array-index-key -- base64 images have no stable ID */}
-              {message.image_data.map((img, i) => (
-                <img
-                  key={i}
-                  src={img}
-                  alt={`Attached ${i + 1}`}
-                  className="max-h-64 max-w-full rounded-lg object-contain"
-                />
-              ))}
-              {/* eslint-enable react/no-array-index-key, react-doctor/no-array-index-key */}
-            </div>
-          )}
+          {imageElements}
           {(() => {
             if (viewMode === 'raw') {
               return (
@@ -336,11 +319,7 @@ const UserMessage: React.FC<{
   );
 };
 
-/**
- * Assistant message component with thinking and tool calls
- * rendered in chronological order.
- */
-// eslint-disable-next-line react-doctor/no-many-boolean-props
+// react-doctor-disable-next-line react-doctor/no-many-boolean-props -- compound refactor would reduce readability for this component
 const AssistantMessage: React.FC<{
   message: Message;
   viewMode: 'text' | 'markdown' | 'raw';
@@ -369,6 +348,40 @@ const AssistantMessage: React.FC<{
   const modelReady = status.loaded || activeProvider !== 'local';
   const ariaLive = isStreaming ? ('polite' as const) : undefined;
   const thinkingStreamingProp = isThinkingStreaming ? isStreaming : undefined;
+  const renderSegmentRow = (segment: RenderedSegment, index: number): React.ReactNode => {
+    if (segment.type === 'tool_call_group') {
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+      return <ToolCallGroup key={`seg-tcg-${index}`} toolCalls={segment.toolCalls} isGenerating={isGenerating} />;
+    }
+    if (segment.type === 'thinking') {
+      const isLastSeg = index === segments.length - 1;
+      const streamProp = isLastSeg && isThinkingStreaming ? isStreaming : undefined;
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+      return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} isStreaming={streamProp} />;
+    }
+    if (segment.type === 'tool_call') {
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+      return <ToolCallBlock key={`seg-tc-${index}`} toolCalls={[segment.toolCall]} isGenerating={isGenerating} />;
+    }
+    if (segment.type === 'tool_call_pending') {
+      if (!isStreaming) return null;
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+      return <div key={`seg-tcp-${index}`} className="flex w-full items-center gap-2 rounded bg-muted px-3 py-2 text-xs text-foreground/70"><Loader2 className="size-3 flex-shrink-0 animate-spin" /><span className="font-medium">{segment.name ?? 'tool call'}</span><span className="text-foreground/40">{t('messageBubble.writingArguments')}</span></div>;
+    }
+    const text = segment.content;
+    if (!text.trim()) return null;
+    const isLastTextSeg = index === segments.length - 1;
+    const segStreaming = isLastTextSeg ? isStreaming : undefined;
+    if (viewMode === 'markdown') {
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+      return <div key={`seg-txt-${index}`}><MarkdownContent content={text} testId="message-content" /></div>;
+    }
+    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
+    return <div key={`seg-txt-${index}`}><StreamingText content={text} isStreaming={segStreaming} /></div>;
+  };
+  const renderedSegments = (isStreaming ? segments : groupConsecutiveToolCalls(segments)).map(
+    (segment, index) => renderSegmentRow(segment, index),
+  );
   return (
     <div
       className="flex w-full justify-start"
@@ -378,7 +391,6 @@ const AssistantMessage: React.FC<{
     >
       <div className="w-full space-y-3 overflow-hidden">
         {viewMode === 'raw' && (
-          /* Raw mode: show unprocessed content with no parsing */
           <pre
             className="whitespace-pre-wrap font-mono text-xs leading-relaxed"
             data-testid="message-content"
@@ -388,77 +400,10 @@ const AssistantMessage: React.FC<{
         )}
         {viewMode !== 'raw' && (
           <>
-            {/* Thinking process — only when not already placed chronologically in segments */}
             {thinkingContent != null && !segments.some((s) => s.type === 'thinking') && (
               <ThinkingBlock content={thinkingContent} isStreaming={thinkingStreamingProp} />
             )}
-
-            {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
-            {/* eslint-disable react/no-array-index-key, react-doctor/no-array-index-key -- segments are positional with no stable ID */}
-            {(isStreaming ? segments : groupConsecutiveToolCalls(segments)).map(
-              (segment, index) => {
-                if (segment.type === 'tool_call_group') {
-                  return (
-                    <ToolCallGroup
-                      key={`seg-tcg-${index}`}
-                      toolCalls={segment.toolCalls}
-                      isGenerating={isGenerating}
-                    />
-                  );
-                }
-                if (segment.type === 'thinking') {
-                  const isLastSeg = index === segments.length - 1;
-                  const segThinkStreamProp =
-                    isLastSeg && isThinkingStreaming ? isStreaming : undefined;
-                  return (
-                    <ThinkingBlock
-                      key={`seg-think-${index}`}
-                      content={segment.content}
-                      isStreaming={segThinkStreamProp}
-                    />
-                  );
-                }
-                if (segment.type === 'tool_call') {
-                  return (
-                    <ToolCallBlock
-                      key={`seg-tc-${index}`}
-                      toolCalls={[segment.toolCall]}
-                      isGenerating={isGenerating}
-                    />
-                  );
-                }
-                if (segment.type === 'tool_call_pending') {
-                  // Only show while actively streaming — persisted messages with incomplete
-                  // tool calls (e.g. worker died mid-generation) should not show a spinner.
-                  if (!isStreaming) return null;
-                  return (
-                    <div
-                      key={`seg-tcp-${index}`}
-                      className="flex w-full items-center gap-2 rounded bg-muted px-3 py-2 text-xs text-foreground/70"
-                    >
-                      <Loader2 className="size-3 flex-shrink-0 animate-spin" />
-                      <span className="font-medium">{segment.name ?? 'tool call'}</span>
-                      <span className="text-foreground/40">
-                        {t('messageBubble.writingArguments')}
-                      </span>
-                    </div>
-                  );
-                }
-                // Text segment — no bubble, just text on background
-                const text = segment.content;
-                if (!text.trim()) return null;
-                const isLastTextSeg = index === segments.length - 1;
-                const segStreaming = isLastTextSeg ? isStreaming : undefined;
-                const textContent =
-                  viewMode === 'markdown' ? (
-                    <MarkdownContent content={text} testId="message-content" />
-                  ) : (
-                    <StreamingText content={text} isStreaming={segStreaming} />
-                  );
-                return <div key={`seg-txt-${index}`}>{textContent}</div>;
-              },
-            )}
-            {/* eslint-enable react/no-array-index-key */}
+            {renderedSegments}
             {!!isStreaming && <LoadingIndicator />}
           </>
         )}
@@ -490,9 +435,6 @@ const AssistantMessage: React.FC<{
   );
 };
 
-/**
- * Message bubble component - renders user, assistant, or system messages.
- */
 export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
   ({
     message,
@@ -509,20 +451,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
     const { cleanContent, thinkingContent, isThinkingStreaming, segments, isError } =
       useMessageParsing(message, status.tool_tags);
 
-    // System messages
     const displayContent = viewMode === 'raw' ? message.content : cleanContent;
     if (message.role === 'system') {
       if (message.isSystemPrompt) {
         return <SystemPromptMessage message={message} cleanContent={displayContent} />;
       }
-      // Compaction summary messages
       if (message.content.startsWith('[Conversation summary')) {
         return <CompactionSummary message={message} cleanContent={displayContent} />;
       }
       return <SystemMessage message={message} cleanContent={displayContent} isError={isError} />;
     }
 
-    // User messages
     if (message.role === 'user') {
       return (
         <UserMessage
@@ -536,7 +475,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
       );
     }
 
-    // Assistant messages
     const onContinueProp =
       onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined;
     const onRegenerateProp =

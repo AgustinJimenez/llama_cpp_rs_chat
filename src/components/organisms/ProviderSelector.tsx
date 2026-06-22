@@ -84,8 +84,7 @@ const SectionHeader = ({
   </button>
 );
 
-// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct provider selection states
-// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component -- single cohesive provider selection modal
+/* eslint-disable max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer -- single cohesive provider selection modal */
 export const ProviderSelector = ({
   isOpen,
   onClose,
@@ -183,6 +182,7 @@ export const ProviderSelector = ({
   }, []);
 
   // Multiple setState calls for independent UI state — genuinely separate concerns
+  // eslint-disable-next-line react-doctor/no-cascading-set-state -- separate concerns, same init trigger
   useEffect(() => {
     if (!isOpen) return;
     const cancelled = { v: false };
@@ -372,6 +372,14 @@ export const ProviderSelector = ({
                     ? 'border-border'
                     : 'border-border opacity-60';
                   if (currentProvider === provider.id) borderClass = 'border-primary bg-primary/10';
+                  // eslint-disable-next-line react-doctor/no-prevent-default -- SPA form submission
+                  const handleCliFormSubmit = (e: React.FormEvent) => {
+                    e.preventDefault();
+                    const m = customModels[provider.id]?.trim();
+                    if (m && provider.available) onSelectRemote(provider.id, m);
+                  };
+                  /* eslint-enable max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer */
+
                   return (
                     <div
                       key={provider.id}
@@ -413,14 +421,7 @@ export const ProviderSelector = ({
                             </button>
                           ))}
                         </div>
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault(); // SPA: prevent page reload
-                            const m = customModels[provider.id]?.trim();
-                            if (m && provider.available) onSelectRemote(provider.id, m);
-                          }}
-                          className="flex gap-2"
-                        >
+                        <form onSubmit={handleCliFormSubmit} className="flex gap-2">
                           <input
                             type="text"
                             placeholder={t('provider.customModelPlaceholder')}
@@ -506,6 +507,12 @@ export const ProviderSelector = ({
                 if (currentProvider === provider.id) {
                   providerBorderClass = 'border-primary bg-primary/10';
                 }
+                // eslint-disable-next-line react-doctor/no-prevent-default -- SPA form submission
+                const handleOpenAiFormSubmit = (e: React.FormEvent) => {
+                  e.preventDefault();
+                  const m = customModels[provider.id]?.trim();
+                  if (m) onSelectRemote(provider.id, m);
+                };
                 return (
                   <div
                     key={provider.id}
@@ -628,14 +635,7 @@ export const ProviderSelector = ({
                                 </option>
                               ))}
                             </select>
-                            <form
-                              onSubmit={(e) => {
-                                e.preventDefault(); // SPA: prevent page reload
-                                const m = customModels[provider.id]?.trim();
-                                if (m) onSelectRemote(provider.id, m);
-                              }}
-                              className="mt-1 flex gap-2"
-                            >
+                            <form onSubmit={handleOpenAiFormSubmit} className="mt-1 flex gap-2">
                               <input
                                 type="text"
                                 placeholder={t('provider.orTypeModelName')}

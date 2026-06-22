@@ -27,7 +27,7 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
 
-  // setState calls inside are in separate event handlers (onopen/onclose) — not cascading
+  // eslint-disable-next-line react-doctor/no-cascading-set-state — setState in separate event handlers
   useEffect(() => {
     // In Tauri desktop mode, backend is always local — skip WebSocket health check
     if (isTauriEnv()) return;

@@ -30,8 +30,7 @@ interface SidebarProps {
   onNewChat: () => void;
 }
 
-// eslint-disable-next-line react-doctor/prefer-useReducer -- genuinely distinct UI states
-// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component
+// eslint-disable-next-line max-lines-per-function, react-doctor/no-giant-component, react-doctor/prefer-useReducer -- genuinely distinct UI states
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { t } = useTranslation();
   const {

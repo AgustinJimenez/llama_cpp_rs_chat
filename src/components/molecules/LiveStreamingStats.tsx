@@ -55,8 +55,9 @@ export const LiveStreamingStats = ({
 }) => {
   const { t } = useTranslation();
   const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
-  const [tokenCount, setTokenCount] = useState(0);
-  const [liveTokPerSec, setLiveTokPerSec] = useState(0);
+  const [tokenStats, setTokenStats] = useState({ count: 0, tokPerSec: 0 });
+  const liveTokPerSec = tokenStats.tokPerSec;
+  const tokenCount = tokenStats.count;
   const elapsedRef = useRef(0);
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
@@ -65,28 +66,30 @@ export const LiveStreamingStats = ({
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
-  // Related token tracking state — reset together on initialization
+  // eslint-disable-next-line react-doctor/no-cascading-set-state -- reset + periodic timer, separate concerns
   useEffect(() => {
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
     genTimeRef.current = 0;
-    setTokenCount(0);
-    setLiveTokPerSec(0);
+    setTokenStats({ count: 0, tokPerSec: 0 });
     firstTokensUsedRef.current = null;
     lastTokensRef.current = 0;
     const id = setInterval(() => {
       const now = Date.now();
       elapsedRef.current = now - startRef.current;
-      // Only count time as "generation time" if tokens changed since last tick
       const currentTokens = lastTokensRef.current;
       if (currentTokens > 0 && genTimeRef.current > 0) {
-        setLiveTokPerSec(currentTokens / (genTimeRef.current / 1000));
+        setTokenStats((prev) => ({
+          ...prev,
+          tokPerSec: currentTokens / (genTimeRef.current / 1000),
+        }));
       }
       lastTickRef.current = now;
     }, 1000);
     return () => clearInterval(id);
   }, []);
 
+  // eslint-disable-next-line react-doctor/no-cascading-set-state -- single setTokenStats per token update
   useEffect(() => {
     if (tokensUsed === undefined) return;
     if (firstTokensUsedRef.current === null) {
@@ -99,11 +102,10 @@ export const LiveStreamingStats = ({
       lastTickRef.current = Date.now();
     }
     lastTokensRef.current = newCount;
-    setTokenCount(newCount);
+    setTokenStats((prev) => ({ ...prev, count: newCount }));
   }, [tokensUsed]);
 
-  // setPolledStatus in different branches — not cascading
-  // eslint-disable-next-line react-doctor/no-fetch-in-effect
+  /* eslint-disable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- setPolledStatus in branches */
   useEffect(() => {
     if (streamStatus) {
       setPolledStatus(undefined);
@@ -124,6 +126,7 @@ export const LiveStreamingStats = ({
     const id = setInterval(poll, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [streamStatus]);
+  /* eslint-enable react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect */
 
   const rawStatus = streamStatus || polledStatus;
   // Compaction progress is shown by CompactButton — filter it out of the inline status line.
@@ -174,8 +177,10 @@ const CompactButton = ({
 }) => {
   const { t } = useTranslation();
   const [isCompacting, setIsCompacting] = useState(false);
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const [polledProgress, setPolledProgress] = useState<string | null>(null);
+  const [compactState, setCompactState] = useState({
+    elapsedSec: 0,
+    polledProgress: null as string | null,
+  });
   const startRef = useRef<number>(0);
 
   // Auto-compaction is happening when the generation stream carries a Compacting status.
@@ -183,16 +188,19 @@ const CompactButton = ({
   const compacting = isCompacting || isAutoCompacting;
 
   // Related compaction display state — reset together
-  // eslint-disable-next-line react-doctor/no-fetch-in-effect
+  // eslint-disable-next-line react-doctor/no-cascading-set-state, react-doctor/no-fetch-in-effect -- reset + interval, separate concerns
   useEffect(() => {
     if (!compacting) {
-      setElapsedSec(0);
-      setPolledProgress(null);
+      setCompactState({ elapsedSec: 0, polledProgress: null });
       return;
     }
     startRef.current = Date.now();
     const id = setInterval(
-      () => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)),
+      () =>
+        setCompactState((s) => ({
+          ...s,
+          elapsedSec: Math.floor((Date.now() - startRef.current) / 1000),
+        })),
       1000,
     );
     // Poll server progress only for manual compaction; auto uses streamStatus directly.
@@ -202,7 +210,8 @@ const CompactButton = ({
           const resp = await fetch('/api/model/status');
           if (resp.ok) {
             const data = await resp.json();
-            if (data.status_message) setPolledProgress(data.status_message);
+            if (data.status_message)
+              setCompactState((s) => ({ ...s, polledProgress: data.status_message }));
           }
         } catch {
           /* ignore */
@@ -235,7 +244,7 @@ const CompactButton = ({
   }, [conversationId, compacting, t]);
 
   // Extract progress % — from streamStatus for auto, polled status for manual.
-  const pctSource = isAutoCompacting ? streamStatus : polledProgress;
+  const pctSource = isAutoCompacting ? streamStatus : compactState.polledProgress;
   const pctMatch = pctSource?.match(/\((\d+)%\)/);
   const pct = pctMatch ? pctMatch[1] : null;
 
@@ -245,7 +254,10 @@ const CompactButton = ({
     <PackageOpen className="size-3" />
   );
   const compactLabel = compacting
-    ? t('stats.compactingText', { pct: pct ? `${pct}%` : '…', elapsed: fmtElapsed(elapsedSec) })
+    ? t('stats.compactingText', {
+        pct: pct ? `${pct}%` : '…',
+        elapsed: fmtElapsed(compactState.elapsedSec),
+      })
     : t('stats.compact');
   return (
     <button

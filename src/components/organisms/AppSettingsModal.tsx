@@ -45,6 +45,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
   }, [config]);
 
   // Related loading/data states (isLoading vs data) — separate concerns
+  // eslint-disable-next-line react-doctor/no-cascading-set-state -- loading vs data, separate concerns
   useEffect(() => {
     if (!isOpen || activeTab !== 'Errors') return;
     let cancelled = false;

@@ -20,8 +20,7 @@ interface StreamingTextProps {
 export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreaming }) => {
   const [isIdle, setIsIdle] = useState(false);
 
-  // Detect stream idle gaps: reset on every new token, fire after 150ms silence
-  // setIsIdle calls are in different branches (streaming vs not) — not cascading
+  // eslint-disable-next-line react-doctor/no-cascading-set-state — single state, conditional branches
   useEffect(() => {
     if (!isStreaming) {
       setIsIdle(false);

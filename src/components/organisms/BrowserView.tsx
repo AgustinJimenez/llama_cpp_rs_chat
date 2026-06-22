@@ -56,6 +56,7 @@ export const BrowserView = React.memo(() => {
   }, [isBrowserViewOpen, browserViewUrl, openBrowserView]);
 
   // Keep URL input + history in sync when external state changes
+  // eslint-disable-next-line react-doctor/no-cascading-set-state -- related navigation state
   useEffect(() => {
     if (!browserViewUrl) return;
     // External URL change (agent navigation) — navigate the panel
