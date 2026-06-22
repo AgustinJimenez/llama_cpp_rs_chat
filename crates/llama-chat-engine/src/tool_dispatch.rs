@@ -279,7 +279,7 @@ pub(crate) fn execute_single_tool(
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
-                    let text = execute_command_background(rtk_cmd, |line| {
+                    let text = execute_command_background(&rtk_cmd, |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
@@ -294,7 +294,7 @@ pub(crate) fn execute_single_tool(
                     log_info!(conversation_id, "🐚 Batch: streaming execute_command (timeout={}s): {}", timeout_secs.unwrap_or(300), rtk_cmd);
                     let sender_clone = token_sender.clone();
                     let exec_start = Instant::now();
-                    let text = execute_command_streaming_with_timeout(rtk_cmd, cancel, timeout_secs, &mut |line| {
+                    let text = execute_command_streaming_with_timeout(&rtk_cmd, cancel, timeout_secs, &mut |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
