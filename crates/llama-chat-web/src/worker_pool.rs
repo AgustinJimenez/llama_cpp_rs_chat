@@ -192,18 +192,28 @@ impl WorkerPool {
     /// is being swapped out by the caller anyway).
     async fn evict_to_fit(&self, new_size: u64, keep_id: Option<&str>) {
         let total_ram = total_physical_ram_bytes();
-        if total_ram == 0 {
-            return; // unknown capacity — don't evict anything
-        }
+        // On GPU machines VRAM is the real constraint, not RAM. Use the smaller of the
+        // two so that, e.g., a 24 GB GPU with 128 GB RAM doesn't skip eviction and lets
+        // two large models fight over VRAM. If VRAM can't be detected we fall back to RAM.
+        let total_vram = total_gpu_vram_bytes();
+        let capacity = match (total_ram, total_vram) {
+            (0, 0) => return, // unknown capacity — don't evict anything
+            (r, 0) => r,
+            (0, v) => v,
+            (r, v) => r.min(v),
+        };
         // Reserve headroom for the OS, the app, and per-model KV/compute buffers. On
         // unified-memory Macs the Metal GPU working set is capped well below total RAM
         // (~70%), so reserve more there — otherwise two ~6GB models slip under a naive
         // RAM budget yet still exhaust the GPU working set and OOM.
         let reserve_pct: u64 = if cfg!(target_os = "macos") { 35 } else { 20 };
-        let reserve = (total_ram * reserve_pct / 100).max(3 * 1024 * 1024 * 1024);
-        let budget = total_ram.saturating_sub(reserve);
+        let reserve = (capacity * reserve_pct / 100).max(3 * 1024 * 1024 * 1024);
+        let budget = capacity.saturating_sub(reserve);
 
-        // Snapshot currently-loaded workers, their model size, and whether they're busy.
+        // Snapshot currently-loaded workers: estimate their budget contribution based on
+        // configured gpu_layers / block_count so that a fully-CPU worker (gpu_layers == 0)
+        // doesn't count against the VRAM budget, and a partially-offloaded one counts
+        // proportionally. This mirrors the modal's memory visualization math.
         let mut loaded: Vec<(WorkerId, SharedWorkerBridge, u64, bool)> = Vec::new();
         let mut resident: u64 = 0;
         for entry in self.list_entries() {
@@ -211,10 +221,20 @@ impl WorkerPool {
                 continue; // never count or evict the kept worker
             }
             if let Some(meta) = entry.bridge.model_status().await {
-                let size = model_file_size(&meta.model_path);
+                let file_size = model_file_size(&meta.model_path);
+                // If we have gpu_layers and block_count from the runtime status, use the
+                // GPU fraction of the file size as the VRAM estimate for this worker.
+                // Otherwise fall back to the full file size (conservative).
+                let vram_size = match (meta.gpu_layers, meta.block_count) {
+                    (Some(gl), Some(bc)) if bc > 0 => {
+                        let frac = (gl.min(bc) as u64 * 1000) / bc as u64;
+                        file_size * frac / 1000
+                    }
+                    _ => file_size,
+                };
                 let generating = entry.bridge.is_generating().await;
-                resident = resident.saturating_add(size);
-                loaded.push((entry.id, entry.bridge, size, generating));
+                resident = resident.saturating_add(vram_size);
+                loaded.push((entry.id, entry.bridge, vram_size, generating));
             }
         }
 
@@ -695,10 +715,66 @@ fn total_physical_ram_bytes() -> u64 {
             .map(|kb| kb * 1024)
             .unwrap_or(0)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        #[repr(C)]
+        struct MemoryStatusEx {
+            dw_length: u32,
+            dw_memory_load: u32,
+            ull_total_phys: u64,
+            ull_avail_phys: u64,
+            ull_total_page_file: u64,
+            ull_avail_page_file: u64,
+            ull_total_virtual: u64,
+            ull_avail_virtual: u64,
+            ull_avail_extended_virtual: u64,
+        }
+        extern "system" {
+            fn GlobalMemoryStatusEx(lp_buffer: *mut MemoryStatusEx) -> i32;
+        }
+        let mut status = MemoryStatusEx {
+            dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+            dw_memory_load: 0,
+            ull_total_phys: 0,
+            ull_avail_phys: 0,
+            ull_total_page_file: 0,
+            ull_avail_page_file: 0,
+            ull_total_virtual: 0,
+            ull_avail_virtual: 0,
+            ull_avail_extended_virtual: 0,
+        };
+        // SAFETY: calling a well-defined Windows API with a correctly-sized struct.
+        if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
+            status.ull_total_phys
+        } else {
+            0
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         0
     }
+}
+
+/// Query total GPU VRAM via nvidia-smi. Returns 0 if not available (no NVIDIA GPU,
+/// no nvidia-smi, or a non-NVIDIA machine). On AMD/Intel/Apple Silicon this is a
+/// fast no-op (command not found) and the caller falls back to RAM-only budgeting.
+fn total_gpu_vram_bytes() -> u64 {
+    std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|out| String::from_utf8(out).ok())
+        .and_then(|s| {
+            // nvidia-smi prints one line per GPU (MiB). Sum all GPUs for multi-GPU rigs.
+            let total_mb: u64 = s
+                .lines()
+                .filter_map(|l| l.trim().parse::<u64>().ok())
+                .sum();
+            if total_mb > 0 { Some(total_mb * 1024 * 1024) } else { None }
+        })
+        .unwrap_or(0)
 }
 
 /// On-disk size of a GGUF model in bytes — a good proxy for its resident memory

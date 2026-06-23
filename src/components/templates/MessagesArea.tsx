@@ -141,6 +141,19 @@ export const MessagesArea = () => {
     return () => window.removeEventListener('edit-message-submitted', handler);
   }, [scrollToBottom]);
 
+  // Scroll to a specific message index when MessageNav tick is clicked.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const index = (e as CustomEvent<{ index: number }>).detail?.index;
+      if (typeof index === 'number') {
+        autoScrollRef.current = false;
+        virtualizer.scrollToIndex(index, { align: 'start', behavior: 'smooth' });
+      }
+    };
+    window.addEventListener('scroll-to-message', handler);
+    return () => window.removeEventListener('scroll-to-message', handler);
+  }, [virtualizer]);
+
   return (
     <div className="relative flex-1 overflow-hidden">
       <div

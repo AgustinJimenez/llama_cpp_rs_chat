@@ -110,22 +110,15 @@ const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string
   },
 };
 
-function formatParamValue(key: string, val: unknown): string {
-  if (key === 'summary') return val === false || val === 'false' || val === 'no' ? 'No' : 'Yes';
-  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
-  if (typeof val === 'string') return val;
-  return JSON.stringify(val);
-}
-
 function defaultToolSummary(args: Record<string, unknown>): string {
-  // Filter out the 'summary' param when other params exist (it's noise)
-  const entries = Object.entries(args).filter(
-    ([k]) => !(k === 'summary' && Object.keys(args).length > 1),
-  );
-  if (entries.length === 0) return '';
-  const [key, val] = entries[0];
-  const valStr = formatParamValue(key, val);
-  return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
+  // Show only the first string value — it identifies what the tool acted on.
+  // Skip numeric/boolean config params (e.g. max_chars, timeout) entirely.
+  for (const val of Object.values(args)) {
+    if (typeof val === 'string' && val.length > 0 && !/^\d+(\.\d+)?$/.test(val)) {
+      return val.slice(0, 80) + (val.length > 80 ? '...' : '');
+    }
+  }
+  return '';
 }
 
 function formatToolName(name: string): string {
@@ -423,44 +416,91 @@ const CompletedOutput: React.FC<{
   );
 };
 
+const FILE_DIFF_OPS: Record<string, { label: string; color: string; bg: string }> = {
+  write_file: { label: 'created', color: '#3fb950', bg: 'rgba(63,185,80,0.10)' },
+  edit_file:  { label: 'edited',  color: '#d29922', bg: 'rgba(210,153,34,0.10)' },
+  insert_text:{ label: 'inserted',color: '#58a6ff', bg: 'rgba(88,166,255,0.10)' },
+  undo_edit:  { label: 'reverted',color: '#e8912d', bg: 'rgba(232,145,45,0.10)' },
+};
+
+const MAX_DIFF_LINES = 300;
+
 /**
- * Renders a colored inline diff for edit_file tool calls.
- * Red lines = removed (old_string), green lines = added (new_string).
+ * Inline diff view for file manipulation tools (write_file, edit_file, insert_text).
+ * Always visible below the tool header — no click required.
  */
-const EditFileDiff: React.FC<{ args: Record<string, unknown> }> = ({ args }) => {
-  const oldStr = String(args.old_string || '');
-  const newStr = String(args.new_string || '');
-  const oldLines = oldStr.split('\n');
-  const newLines = newStr.split('\n');
+const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = ({ name, args }) => {
+  const op = FILE_DIFF_OPS[name];
+  if (!op) return null;
+
+  const path = String(args.path || '');
+
+  type DiffLine = { type: 'add' | 'remove'; content: string };
+  let lines: DiffLine[] = [];
+
+  if (name === 'write_file') {
+    lines = String(args.content || '').split('\n').map((l) => ({ type: 'add', content: l }));
+  } else if (name === 'edit_file') {
+    const removed = String(args.old_string || '').split('\n').map((l) => ({ type: 'remove' as const, content: l }));
+    const added   = String(args.new_string || '').split('\n').map((l) => ({ type: 'add'    as const, content: l }));
+    lines = [...removed, ...added];
+  } else if (name === 'insert_text') {
+    lines = String(args.content || '').split('\n').map((l) => ({ type: 'add', content: l }));
+  }
+  // undo_edit: no content diff available, just show path badge
+
+  const truncated = lines.length > MAX_DIFF_LINES;
+  const visible = truncated ? lines.slice(0, MAX_DIFF_LINES) : lines;
 
   return (
-    <pre className="max-h-64 overflow-x-auto overflow-y-auto overscroll-contain whitespace-pre-wrap border-t border-border bg-card px-3 py-2 font-mono text-xs">
-      <div className="mb-1 text-muted-foreground">{String(args.path || '')}</div>
-      {oldLines.map((line) => {
-        const lineKey = `old-${line.length}-${line}`;
-        return (
-          <div
-            key={lineKey}
-            style={{ backgroundColor: 'rgba(248, 81, 73, 0.15)', color: '#f85149' }}
-          >
-            {'- '}
-            {line}
-          </div>
-        );
-      })}
-      {newLines.map((line) => {
-        const lineKey = `new-${line.length}-${line}`;
-        return (
-          <div
-            key={lineKey}
-            style={{ backgroundColor: 'rgba(63, 185, 80, 0.15)', color: '#3fb950' }}
-          >
-            {'+ '}
-            {line}
-          </div>
-        );
-      })}
-    </pre>
+    <div className="border-t border-border">
+      {/* File path + operation badge */}
+      <div className="flex items-center gap-2 bg-card px-3 py-1.5">
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{path}</span>
+        <span
+          className="flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide"
+          style={{ color: op.color, background: op.bg }}
+        >
+          {op.label}
+        </span>
+      </div>
+      {/* Diff lines */}
+      {visible.length > 0 && (
+        <div className="max-h-52 overflow-y-auto overscroll-contain">
+          <pre className="bg-card font-mono text-xs leading-5">
+            {visible.map((line, i) => (
+              <div
+                key={i}
+                style={{
+                  backgroundColor: line.type === 'add'
+                    ? 'rgba(63,185,80,0.07)'
+                    : 'rgba(248,81,73,0.07)',
+                }}
+                className="flex px-3"
+              >
+                <span
+                  className="mr-2 w-3 flex-shrink-0 select-none"
+                  style={{ color: line.type === 'add' ? '#3fb950' : '#f85149' }}
+                >
+                  {line.type === 'add' ? '+' : '-'}
+                </span>
+                <span
+                  className="flex-1 whitespace-pre-wrap break-all"
+                  style={{ color: line.type === 'add' ? '#3fb950' : '#f85149' }}
+                >
+                  {line.content}
+                </span>
+              </div>
+            ))}
+            {truncated && (
+              <div className="px-3 py-1 text-[11px] text-muted-foreground">
+                … {lines.length - MAX_DIFF_LINES} more lines
+              </div>
+            )}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -566,10 +606,8 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   const displayImagesJson = displayImagesMatch?.[1] ?? null;
   const cleanOutput = displayImagesMatch ? null : rawAfterStatus;
   const hasOutput = !!cleanOutput && cleanOutput.length > 0;
-  const isEditFile = toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object';
-  const expandedContent = isEditFile ? (
-    <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
-  ) : (
+  const hasDiffView = typeof toolCall.arguments === 'object' && toolCall.name in FILE_DIFF_OPS;
+  const expandedContent = (
     <pre className="max-h-64 overflow-x-auto overflow-y-auto overscroll-contain whitespace-pre-wrap bg-card px-3 py-2 font-mono text-xs text-foreground">
       {formatToolArguments(toolCall.arguments)}
     </pre>
@@ -599,6 +637,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   return (
     <div className="flat-card overflow-hidden" style={{ contain: 'content' }}>
       {headerEl}
+      {hasDiffView && (
+        <FileDiffView
+          name={toolCall.name}
+          args={toolCall.arguments as Record<string, unknown>}
+        />
+      )}
       {!!isExpanded && expandedContent}
       {!!hasCleanOutput && (
         <CompletedOutput

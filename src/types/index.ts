@@ -25,6 +25,8 @@ export interface Message {
   toolCallTimings?: number[];
   /** Structured parts (remote provider messages). Absent for local-model messages. */
   parts?: MessagePart[];
+  /** LLM-generated short title (≤50 chars). Set on user messages after background gen. */
+  title?: string;
 }
 
 /** Dynamic tag pair for per-model tag configuration. */

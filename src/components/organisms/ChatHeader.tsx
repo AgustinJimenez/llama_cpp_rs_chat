@@ -369,18 +369,18 @@ export const ChatHeader = React.memo(
 
     return (
       <div
-        className="flex items-center justify-between border-b border-border px-4 py-2"
+        className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background px-4 py-2"
         data-testid="chat-header"
       >
         {/* Left: hamburger (mobile) + model selector + unload */}
         <div className="flex min-w-0 items-center gap-1">
           <button
             onClick={toggleMobileSidebar}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
             title="Toggle sidebar"
             aria-label="Toggle sidebar"
           >
-            <Menu className="size-4" />
+            <Menu className="size-6" />
           </button>
           {!!showAgentSelector && (
             <HeaderAgentControls onModelUnload={onModelUnload} onForceUnload={onForceUnload} />

@@ -98,6 +98,9 @@ pub struct ChatMessage {
     /// Structured parts (remote provider messages). Empty for local-model messages.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub parts: Vec<MessagePart>,
+    /// LLM-generated short title (≤50 chars). Present on user messages after background gen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Serialize)]

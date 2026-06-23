@@ -50,7 +50,7 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, \
-                 prompt_eval_ms, prompt_tokens, sequence_order, parts \
+                 prompt_eval_ms, prompt_tokens, sequence_order, parts, title \
                  FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare messages"))?;
@@ -70,6 +70,7 @@ impl Database {
                     compacted: false,
                     sequence_order: row.get(9).unwrap_or(0),
                     parts: row.get(10).unwrap_or(None),
+                    title: row.get(11).unwrap_or(None),
                 })
             })
             .map_err(db_error("query messages"))?

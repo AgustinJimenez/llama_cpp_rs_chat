@@ -1,6 +1,7 @@
 import type { ToolCall } from '../types';
 
 import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
+import { generateId } from './messageUtils';
 
 /**
  * Tool parser interface for different model formats
@@ -28,7 +29,7 @@ function parseMistralBracket(text: string): ToolCall[] {
     if (!balanced) continue;
     try {
       calls.push({
-        id: crypto.randomUUID(),
+        id: generateId(),
         name: match[1].trim(),
         arguments: JSON.parse(balanced.json),
       });
@@ -52,7 +53,7 @@ function parseMistralClosedTag(text: string): ToolCall[] {
       try {
         const args = JSON.parse(body.slice(commaIdx + 1));
         if (name && !name.includes(' ')) {
-          calls.push({ id: crypto.randomUUID(), name, arguments: args });
+          calls.push({ id: generateId(), name, arguments: args });
           continue;
         }
       } catch {
@@ -64,7 +65,7 @@ function parseMistralClosedTag(text: string): ToolCall[] {
       const items = Array.isArray(parsed) ? parsed : [parsed];
       for (const item of items) {
         if (item.name) {
-          calls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
+          calls.push({ id: generateId(), name: item.name, arguments: item.arguments || {} });
         }
       }
     } catch {
@@ -86,7 +87,7 @@ function parseMistralBareJson(text: string): ToolCall[] {
       const parsed = JSON.parse(balanced.json);
       if (parsed.name) {
         calls.push({
-          id: crypto.randomUUID(),
+          id: generateId(),
           name: parsed.name,
           arguments: parsed.arguments || {},
         });
@@ -136,7 +137,7 @@ const llama3Parser: ToolParser = {
       try {
         const args = JSON.parse(argsJson);
         toolCalls.push({
-          id: crypto.randomUUID(),
+          id: generateId(),
           name: functionName,
           arguments: args,
         });
@@ -150,7 +151,7 @@ const llama3Parser: ToolParser = {
         }
         if (Object.keys(params).length > 0) {
           toolCalls.push({
-            id: crypto.randomUUID(),
+            id: generateId(),
             name: functionName,
             arguments: params,
           });
@@ -176,7 +177,7 @@ function parseQwenLlama3Fallback(callJson: string): ToolCall | null {
     const args = JSON.parse(balanced.json);
     const finalArgs =
       args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
-    return { id: crypto.randomUUID(), name, arguments: finalArgs };
+    return { id: generateId(), name, arguments: finalArgs };
   } catch {
     return null;
   }
@@ -201,7 +202,7 @@ function parseQwenGlmFallback(callJson: string): ToolCall | null {
     }
   }
   if (Object.keys(args).length === 0) return null;
-  return { id: crypto.randomUUID(), name, arguments: args };
+  return { id: generateId(), name, arguments: args };
 }
 
 /**
@@ -227,7 +228,7 @@ const qwenParser: ToolParser = {
         for (const call of items) {
           if (call?.name) {
             toolCalls.push({
-              id: crypto.randomUUID(),
+              id: generateId(),
               name: call.name,
               arguments: call.arguments || {},
             });
@@ -269,7 +270,7 @@ const lfm2Parser: ToolParser = {
       const parsed = parsePythonFunctionCall(body);
       if (parsed) {
         toolCalls.push({
-          id: crypto.randomUUID(),
+          id: generateId(),
           name: parsed.name,
           arguments: parsed.args,
         });

@@ -99,6 +99,7 @@ pub async fn handle_get_conversation(
                             compacted: rec.compacted,
                             sequence_order: Some(rec.sequence_order),
                             parts,
+                            title: None,
                         });
                         msg_idx += 1;
                     }
@@ -122,6 +123,7 @@ pub async fn handle_get_conversation(
                         compacted: rec.compacted,
                         sequence_order: Some(rec.sequence_order),
                         parts,
+                        title: rec.title.clone(),
                     });
                     msg_idx += 1;
                     i += 1;

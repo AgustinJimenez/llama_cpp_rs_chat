@@ -91,14 +91,21 @@ function reconcileMessages(incoming: Message[], local: Message[], isStreaming: b
   const localLast = local[local.length - 1];
   const incomingLast = incoming[incoming.length - 1];
 
+  // Helper: prepend the system prompt from `incoming` if `base` doesn't have one.
+  const withSystemPrompt = (base: Message[]): Message[] => {
+    if (base[0]?.isSystemPrompt) return base;
+    const sp = incoming.find((m) => m.isSystemPrompt);
+    return sp ? [sp, ...base] : base;
+  };
+
   if (localLast?.role === 'assistant') {
     const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
     const incomingLength = incomingAssistant?.content.length ?? 0;
     if (incomingLength < localLast.content.length || incoming.length < local.length) {
-      return local;
+      return withSystemPrompt(local);
     }
   } else if (incoming.length < local.length) {
-    return local;
+    return withSystemPrompt(local);
   }
 
   return incoming;

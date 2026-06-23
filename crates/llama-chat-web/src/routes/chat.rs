@@ -25,7 +25,8 @@ use crate::worker_pool::{resolve_bridge_for_conversation, resolve_bridge_for_req
 #[cfg(not(feature = "mock"))]
 use crate::websocket::{
     handle_conversation_watch, handle_websocket, make_server_continuation_message,
-    should_server_auto_continue, spawn_title_generation, MAX_SERVER_AUTO_CONTINUES,
+    should_server_auto_continue, spawn_message_title_generation, spawn_title_generation,
+    MAX_SERVER_AUTO_CONTINUES,
 };
 use crate::websocket_utils::{
     build_json_error_response, build_websocket_upgrade_response,
@@ -122,6 +123,7 @@ pub async fn handle_post_chat(
                     compacted: false,
                     sequence_order: None,
                     parts: vec![],
+                    title: None,
                 },
                 conversation_id: chat_request
                     .conversation_id
@@ -235,6 +237,7 @@ pub async fn handle_post_chat(
                 compacted: false,
                 sequence_order: None,
                 parts: vec![],
+                title: None,
             },
             conversation_id,
             tokens_used: None, // Will be updated via WebSocket
@@ -262,6 +265,7 @@ pub async fn handle_post_chat(
                 compacted: false,
                 sequence_order: None,
                 parts: vec![],
+                title: None,
             },
             conversation_id: "test-conversation".to_string(),
             tokens_used: None,
@@ -459,6 +463,7 @@ pub async fn handle_post_chat_stream(
             }
 
             if let Some(conv_id) = final_conv_id_for_title {
+                spawn_message_title_generation(conv_id.clone(), db_clone.clone(), bridge_clone.clone());
                 spawn_title_generation(conv_id, db_clone, bridge_clone);
             }
 

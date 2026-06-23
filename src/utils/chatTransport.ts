@@ -2,6 +2,7 @@ import type { ChatRequest } from '../types';
 
 import { getWsAuthParam } from './remoteAuth';
 import { isTauriEnv, notifyIfUnfocused } from './tauri';
+import { generateId } from './messageUtils';
 
 export interface TokenBreakdown {
   system_prompt: number;
@@ -135,7 +136,7 @@ function handleStreamMessage(
     if (message.type === 'done') {
       state.isCompleted = true;
       const conversationId =
-        message.conversation_id || request.conversation_id || crypto.randomUUID();
+        message.conversation_id || request.conversation_id || generateId();
       const timings: TimingInfo = {
         promptTokPerSec: message.prompt_tok_per_sec,
         genTokPerSec: message.gen_tok_per_sec,
@@ -147,7 +148,7 @@ function handleStreamMessage(
         tokenBreakdown: message.token_breakdown,
       };
       callbacks.onComplete(
-        crypto.randomUUID(),
+        generateId(),
         conversationId,
         state.lastTokensUsed,
         state.lastMaxTokens,
@@ -413,7 +414,7 @@ class TauriChatTransport implements ChatTransport {
 
       if (payload.type === 'done') {
         const conversationId =
-          payload.conversation_id || request.conversation_id || crypto.randomUUID();
+          payload.conversation_id || request.conversation_id || generateId();
         const timings: TimingInfo = {
           promptTokPerSec: payload.prompt_tok_per_sec,
           genTokPerSec: payload.gen_tok_per_sec,
@@ -425,7 +426,7 @@ class TauriChatTransport implements ChatTransport {
           tokenBreakdown: payload.token_breakdown,
         };
         safeOnComplete(
-          crypto.randomUUID(),
+          generateId(),
           conversationId,
           payload.tokens_used,
           payload.max_tokens,

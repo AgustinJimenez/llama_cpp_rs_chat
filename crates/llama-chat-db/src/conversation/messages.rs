@@ -189,6 +189,22 @@ impl Database {
         Ok(())
     }
 
+    /// Store an LLM-generated title on a user message, identified by sequence_order.
+    pub fn update_message_title_by_sequence(
+        &self,
+        conversation_id: &str,
+        sequence_order: i32,
+        title: &str,
+    ) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE messages SET title = ?1 WHERE conversation_id = ?2 AND sequence_order = ?3",
+            params![title, conversation_id, sequence_order],
+        )
+        .map_err(db_error("update message title"))?;
+        Ok(())
+    }
+
     /// Append an error message to a conversation so it survives page reload.
     /// Uses role="error" so the UI can render it distinctly from normal assistant output.
     pub fn append_error_message(&self, conversation_id: &str, error: &str) -> Result<(), String> {

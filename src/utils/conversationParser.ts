@@ -1,5 +1,7 @@
 import type { Message } from '../types';
 
+import { generateId } from './messageUtils';
+
 interface ParseState {
   currentRole: string;
   currentContent: string;
@@ -84,7 +86,7 @@ function createMessageIfValid(
   if (role === 'system') {
     if (hasSystemPrompt && content === systemPromptContent) return null;
     return {
-      id: crypto.randomUUID(),
+      id: generateId(),
       role: 'system',
       content,
       timestamp: Date.now(),
@@ -99,7 +101,7 @@ function createMessageIfValid(
   if (isToolCallOnly(content)) return null;
 
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     role: role as 'user' | 'assistant',
     content,
     timestamp: Date.now(),

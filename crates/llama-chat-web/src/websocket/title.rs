@@ -3,6 +3,51 @@
 use llama_chat_db::SharedDatabase;
 use llama_chat_worker::worker::worker_bridge::SharedWorkerBridge;
 
+/// Spawn a background task that generates a short title for the most recent user message
+/// and stores it on that message row. Called after every generation turn.
+pub fn spawn_message_title_generation(
+    conv_id: String,
+    db: SharedDatabase,
+    bridge: SharedWorkerBridge,
+) {
+    tokio::spawn(async move {
+        // Small delay so the worker is free after the main generation.
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+        let messages = match db.get_messages(&conv_id) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
+        // Find the last user message (the one whose title we want to generate).
+        let last_user = match messages.iter().rev().find(|m| m.role == "user") {
+            Some(m) => m,
+            None => return,
+        };
+
+        // Skip if a title is already set (e.g. on re-generation or retry).
+        if last_user.title.is_some() {
+            return;
+        }
+
+        let sequence_order = last_user.sequence_order;
+        let user_content: String = last_user.content.chars().take(300).collect();
+
+        let prompt = format!("User: {user_content}");
+
+        match bridge.generate_title(&conv_id, &prompt).await {
+            Ok(raw) => {
+                let title = sanitize_title(&raw);
+                if !title.is_empty() {
+                    let _ = db.update_message_title_by_sequence(&conv_id, sequence_order, &title);
+                    eprintln!("[MSG_TITLE] seq={sequence_order} '{title}'");
+                }
+            }
+            Err(e) => eprintln!("[MSG_TITLE] Failed: {e}"),
+        }
+    });
+}
+
 /// Strip tool call/response blocks and thinking blocks from assistant content
 /// so they don't pollute the title generation prompt.
 pub fn strip_tool_tags(content: &str) -> String {

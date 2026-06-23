@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, Suspense } from 'react';
 import toast, { Toaster, ToastBar } from 'react-hot-toast';
 
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
-import { ConnectionBanner, MessageInput } from './components/molecules';
+import { ConnectionBanner, MessageInput, MessageNav } from './components/molecules';
 import { ChatHeader, Sidebar } from './components/organisms';
 import { AgentSelector } from './components/organisms/AgentSelector';
 import { BrowserView } from './components/organisms/BrowserView';
@@ -383,11 +383,14 @@ const MainContent = ({
         )}
         {!isBrowserViewOpen && messages.length > 0 && (
           <>
-            <MessagesArea />
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+              <MessageNav messages={messages} />
+              <MessagesArea />
+            </div>
             <ConversationLog />
             {!!providerReady && (
               <div
-                className="animate-in slide-in-from-bottom-4 px-3 pb-4 pt-2 duration-300 md:px-6"
+                className="animate-in slide-in-from-bottom-4 sticky bottom-0 z-10 bg-background px-3 pb-4 pt-2 duration-300 md:px-6"
                 data-testid="input-container"
               >
                 <div className="mx-auto max-w-3xl space-y-1">

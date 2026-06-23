@@ -11,6 +11,7 @@ import { createChatTransport } from '../utils/chatTransport';
 import type { TimingInfo } from '../utils/chatTransport';
 import { getConversation, getModelStatus, truncateConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
+import { generateId } from '../utils/messageUtils';
 
 import { useConnection } from './useConnection';
 import { useConversationUrl } from './useConversationUrl';
@@ -177,6 +178,7 @@ export function useChat() {
           }
           if (msg.compacted) m.compacted = true;
           if (msg.sequence_order != null) m.sequenceOrder = msg.sequence_order as number;
+          if (msg.title) m.title = String(msg.title);
           return m;
         });
         // Assign persisted tool timings to messages by sequential index.
@@ -271,7 +273,7 @@ export function useChat() {
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: generateId(),
             role: 'user' as const,
             content: trimmed,
             timestamp: Date.now(),
@@ -315,7 +317,7 @@ export function useChat() {
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: generateId(),
           role: 'user' as const,
           content: trimmed,
           timestamp: Date.now(),
@@ -327,7 +329,7 @@ export function useChat() {
       setTokensUsed(undefined);
       setMaxTokens(undefined);
 
-      const assistantMessageId = crypto.randomUUID();
+      const assistantMessageId = generateId();
 
       flushSync(() => {
         setMessages((prev) => [
@@ -407,6 +409,31 @@ export function useChat() {
     window.addEventListener('conversation-compacted', onCompacted);
     return () => window.removeEventListener('conversation-compacted', onCompacted);
   }, [currentConversationId, loadConversation]);
+
+  // Refresh message titles when background title gen completes (fired 4s + 10s after done).
+  useEffect(() => {
+    const onTitleUpdated = async () => {
+      if (!currentConversationId) return;
+      try {
+        const data = await getConversation(currentConversationId);
+        if (!data.messages) return;
+        const apiMsgs = data.messages as Array<Record<string, unknown>>;
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (!msg.sequenceOrder) return msg;
+            const api = apiMsgs.find((m) => m.sequence_order === msg.sequenceOrder);
+            const newTitle = api?.title ? String(api.title) : undefined;
+            if (newTitle && newTitle !== msg.title) return { ...msg, title: newTitle };
+            return msg;
+          }),
+        );
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('conversation-title-updated', onTitleUpdated);
+    return () => window.removeEventListener('conversation-title-updated', onTitleUpdated);
+  }, [currentConversationId, setMessages]);
 
   // ─── Edit message ──────────────────────────────────────────────────────
 
@@ -498,7 +525,7 @@ export function useChat() {
       setIsLoading(true);
       setError(null);
 
-      const assistantMessageId = crypto.randomUUID();
+      const assistantMessageId = generateId();
 
       flushSync(() => {
         setMessages((prev) => [
@@ -543,7 +570,7 @@ export function useChat() {
       setIsLoading(true);
       setError(null);
 
-      const assistantMessageId = crypto.randomUUID();
+      const assistantMessageId = generateId();
 
       flushSync(() => {
         setMessages((prev) => [
@@ -605,7 +632,7 @@ export function useChat() {
             setTimeout(() => {
               if (!currentConversationId) return;
               abortControllerRef.current = new AbortController();
-              const aid = crypto.randomUUID();
+              const aid = generateId();
               flushSync(() => {
                 setMessages((prev) => [
                   ...prev,
@@ -652,6 +679,7 @@ export function useChat() {
                 ...(msg.sequence_order != null
                   ? { sequenceOrder: msg.sequence_order as number }
                   : {}),
+                ...(msg.title ? { title: String(msg.title) } : {}),
                 ...(msg.gen_tok_per_sec != null
                   ? {
                       timings: {
@@ -701,7 +729,7 @@ export function useChat() {
                 setTimeout(() => {
                   if (!currentConversationId) return;
                   abortControllerRef.current = new AbortController();
-                  const aid = crypto.randomUUID();
+                  const aid = generateId();
                   flushSync(() => {
                     setMessages((prev) => [
                       ...prev,

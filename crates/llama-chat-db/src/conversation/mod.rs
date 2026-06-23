@@ -37,6 +37,8 @@ pub struct MessageRecord {
     pub sequence_order: i32,
     /// Structured parts JSON (remote provider only). None for local-model messages.
     pub parts: Option<String>,
+    /// LLM-generated short title (≤50 chars). Set by background title gen; user messages only.
+    pub title: Option<String>,
 }
 
 /// A compaction summary — records which message range has been summarized.
@@ -70,6 +72,7 @@ impl CompactionSummaryRecord {
             compacted: false,
             sequence_order: self.covers_to_sequence,
             parts: None,
+            title: None,
         }
     }
 }

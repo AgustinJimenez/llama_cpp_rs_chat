@@ -48,4 +48,4 @@ mod title;
 pub use chat::handle_websocket;
 pub use watch::handle_conversation_watch;
 pub use status::handle_status_ws;
-pub use title::{sanitize_title, spawn_title_generation, strip_tool_tags};
+pub use title::{sanitize_title, spawn_message_title_generation, spawn_title_generation, strip_tool_tags};
