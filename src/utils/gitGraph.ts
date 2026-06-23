@@ -1,3 +1,41 @@
+export interface GitStatusEntry { status: string; path: string; }
+export interface GitStatusResult { staged: GitStatusEntry[]; unstaged: GitStatusEntry[]; error: string | null; }
+
+export async function fetchGitStatus(repoPath: string): Promise<GitStatusResult> {
+  const res = await fetch(`/api/git/status?path=${encodeURIComponent(repoPath)}`);
+  return res.json() as Promise<GitStatusResult>;
+}
+
+export async function gitStage(repoPath: string, files: string[]): Promise<{ ok: boolean; error: string | null }> {
+  const res = await fetch('/api/git/stage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, files }) });
+  return res.json();
+}
+
+export async function gitUnstage(repoPath: string, files: string[]): Promise<{ ok: boolean; error: string | null }> {
+  const res = await fetch('/api/git/unstage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, files }) });
+  return res.json();
+}
+
+export async function gitCommit(repoPath: string, message: string, description: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, message, description }) });
+  return res.json();
+}
+
+export async function gitFetch(repoPath: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath }) });
+  return res.json();
+}
+
+export async function gitPull(repoPath: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath }) });
+  return res.json();
+}
+
+export async function gitPush(repoPath: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath }) });
+  return res.json();
+}
+
 export interface RawCommit {
   hash: string;
   short_hash: string;

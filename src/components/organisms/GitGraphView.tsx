@@ -1,11 +1,12 @@
 /* eslint-disable max-lines */
-import { AlignJustify, ArrowLeftRight, ArrowUpDown, ChevronDown, ChevronRight, Columns2, Filter, FolderOpen, FolderTree, GitBranch, List, Minus, Pencil, Plus, RefreshCw } from 'lucide-react';
+import { AlignJustify, ArrowDown, ArrowLeftRight, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Circle, Columns2, Filter, FolderOpen, FolderTree, GitBranch, List, Minus, Pencil, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
-import { processCommits } from '../../utils/gitGraph';
-import type { AssignedCommit, GraphEdge, RawCommit } from '../../utils/gitGraph';
+import { fetchGitStatus, gitCommit, gitFetch, gitPull, gitPush, gitStage, gitUnstage, processCommits } from '../../utils/gitGraph';
+import type { AssignedCommit, GitStatusResult, GraphEdge, RawCommit } from '../../utils/gitGraph';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const ROW_H = 30;
@@ -873,6 +874,169 @@ const CommitDetailPanel: React.FC<{
   );
 };
 
+// ── Staging panel ────────────────────────────────────────────────────────────
+// eslint-disable-next-line max-lines-per-function
+const StagingPanel: React.FC<{
+  repoPath: string;
+  width: number;
+  onCommitDone: () => void;
+  onClose: () => void;
+}> = ({ repoPath, width, onCommitDone, onClose }) => {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<GitStatusResult | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [commitMsg, setCommitMsg] = useState('');
+  const [commitDesc, setCommitDesc] = useState('');
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [opError, setOpError] = useState<string | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    if (!repoPath) return;
+    setStatusLoading(true);
+    setOpError(null);
+    try {
+      const data = await fetchGitStatus(repoPath);
+      setStatus(data);
+      if (data.error) setOpError(data.error);
+    } catch (error) {
+      setOpError(error instanceof Error ? error.message : 'Status error');
+    } finally { setStatusLoading(false); }
+  }, [repoPath]);
+
+  useEffect(() => { void refreshStatus(); }, [refreshStatus]);
+
+  const handleStageAll   = useCallback(async () => {
+    setOpError(null);
+    const res = await gitStage(repoPath, []);
+    if (!res.ok) setOpError(res.error); else void refreshStatus();
+  }, [repoPath, refreshStatus]);
+
+  const handleUnstageAll = useCallback(async () => {
+    setOpError(null);
+    const res = await gitUnstage(repoPath, []);
+    if (!res.ok) setOpError(res.error); else void refreshStatus();
+  }, [repoPath, refreshStatus]);
+
+  const handleStageFile   = useCallback(async (file: string) => {
+    const res = await gitStage(repoPath, [file]);
+    if (!res.ok) setOpError(res.error); else void refreshStatus();
+  }, [repoPath, refreshStatus]);
+
+  const handleUnstageFile = useCallback(async (file: string) => {
+    const res = await gitUnstage(repoPath, [file]);
+    if (!res.ok) setOpError(res.error); else void refreshStatus();
+  }, [repoPath, refreshStatus]);
+
+  const handleCommit = useCallback(async () => {
+    if (!commitMsg.trim()) return;
+    setIsCommitting(true);
+    setOpError(null);
+    try {
+      const res = await gitCommit(repoPath, commitMsg.trim(), commitDesc.trim());
+      if (res.ok) { setCommitMsg(''); setCommitDesc(''); onCommitDone(); }
+      else setOpError(res.error ?? 'Commit failed');
+    } catch (error) {
+      setOpError(error instanceof Error ? error.message : 'Commit error');
+    } finally { setIsCommitting(false); }
+  }, [repoPath, commitMsg, commitDesc, onCommitDone]);
+
+  const stagedCount   = status?.staged.length ?? 0;
+  const unstagedCount = status?.unstaged.length ?? 0;
+  const canCommit = stagedCount > 0 && commitMsg.trim().length > 0 && !isCommitting;
+  const refreshIconCls = `size-3 ${statusLoading ? 'animate-spin' : ''}`;
+  const commitBtnLabel = isCommitting ? t('gitGraph.committing') : `${t('gitGraph.commitButton')} (${stagedCount})`;
+
+  return (
+    <div style={{ width }} className="flex shrink-0 flex-col overflow-hidden bg-muted/5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2">
+        <span className="flex-1 text-xs font-semibold text-foreground">{t('gitGraph.stagingTitle')}</span>
+        <button type="button" onClick={() => void refreshStatus()} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={t('gitGraph.refreshStatus')}>
+          <RefreshCw className={refreshIconCls} />
+        </button>
+        <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <X className="size-3" />
+        </button>
+      </div>
+      {!!opError && <p className="shrink-0 px-3 py-1.5 text-xs text-red-400">{opError}</p>}
+      {/* Unstaged section */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-1">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+          {t('gitGraph.unstaged')} ({unstagedCount})
+        </span>
+        {unstagedCount > 0 && (
+          <button type="button" onClick={() => void handleStageAll()} className="rounded px-1.5 py-0.5 text-[10px] text-emerald-400 hover:bg-muted">
+            {t('gitGraph.stageAll')}
+          </button>
+        )}
+      </div>
+      <div className="shrink-0 overflow-y-auto" style={{ maxHeight: 120 }}>
+        {statusLoading && !status && <p className="px-3 py-1 text-xs text-muted-foreground">{t('gitGraph.loadingFiles')}</p>}
+        {(status?.unstaged ?? []).map((f, i) => {
+          const s = f.status;
+          const scls = s === 'A' || s === '?' ? 'text-emerald-400' : s === 'D' ? 'text-red-400' : 'text-amber-400';
+          return (
+            <div key={i} className="flex items-center gap-1.5 px-3 py-0.5 hover:bg-muted/40">
+              <span className={`w-3 shrink-0 text-[10px] font-bold ${scls}`}>{s}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground/70">{f.path}</span>
+              <button type="button" onClick={() => void handleStageFile(f.path)} className="shrink-0 rounded p-0.5 text-emerald-400 hover:bg-muted" title={t('gitGraph.stageFile')}>
+                <Plus className="size-3" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* Staged section */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 border-t border-border/40 px-3 py-1">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+          {t('gitGraph.staged')} ({stagedCount})
+        </span>
+        {stagedCount > 0 && (
+          <button type="button" onClick={() => void handleUnstageAll()} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">
+            {t('gitGraph.unstageAll')}
+          </button>
+        )}
+      </div>
+      <div className="shrink-0 overflow-y-auto" style={{ maxHeight: 120 }}>
+        {(status?.staged ?? []).map((f, i) => {
+          const s = f.status;
+          const scls = s === 'A' ? 'text-emerald-400' : s === 'D' ? 'text-red-400' : 'text-amber-400';
+          return (
+            <div key={i} className="flex items-center gap-1.5 px-3 py-0.5 hover:bg-muted/40">
+              <span className={`w-3 shrink-0 text-[10px] font-bold ${scls}`}>{s}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground/70">{f.path}</span>
+              <button type="button" onClick={() => void handleUnstageFile(f.path)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted" title={t('gitGraph.unstageFile')}>
+                <Minus className="size-3" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* Commit message */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 border-t border-border/40 p-3">
+        <input
+          type="text"
+          value={commitMsg}
+          onChange={(e) => setCommitMsg(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && canCommit) void handleCommit(); }}
+          placeholder={t('gitGraph.commitMsgPlaceholder')}
+          className="w-full rounded border border-border/40 bg-muted/30 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <textarea
+          value={commitDesc}
+          onChange={(e) => setCommitDesc(e.target.value)}
+          placeholder={t('gitGraph.commitDescPlaceholder')}
+          rows={2}
+          className="w-full resize-none rounded border border-border/40 bg-muted/30 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button type="button" onClick={() => void handleCommit()} disabled={!canCommit}
+          className="w-full rounded bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+          {commitBtnLabel}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ── Commit row ────────────────────────────────────────────────────────────────
 const CommitRow: React.FC<{
   commit: AssignedCommit;
@@ -1020,6 +1184,27 @@ export const GitGraphView: React.FC = () => {
   const [commitFiles, setCommitFiles] = useState<FileChange[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [selectedDiffFile, setSelectedDiffFile] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [stagingActive, setStagingActive] = useState(false);
+  const [toolbarBusy, setToolbarBusy] = useState<'fetch' | 'pull' | 'push' | null>(null);
+
+  const filteredCommits = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return commits;
+    return commits.filter((c) =>
+      c.subject.toLowerCase().includes(q) ||
+      c.hash.startsWith(q) ||
+      c.author.toLowerCase().includes(q),
+    );
+  }, [commits, searchQuery]);
+
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: commits.length,
+    getScrollElement: () => listScrollRef.current,
+    estimateSize: () => ROW_H,
+    overscan: 20,
+  });
   const [detailPanelWidth, setDetailPanelWidth] = useState(() => {
     const saved = localStorage.getItem('gitGraphDetailPanelWidth');
     return saved ? parseInt(saved, 10) : DETAIL_PANEL_W;
@@ -1098,6 +1283,45 @@ export const GitGraphView: React.FC = () => {
       return next;
     });
   }, []);
+
+  const openStaging = useCallback(() => { setStagingActive(true); }, []);
+  const handleCommitDone = useCallback(() => {
+    setStagingActive(false);
+    void loadGraph(path);
+  }, [loadGraph, path]);
+
+  const handleFetch = useCallback(async () => {
+    if (!path.trim()) return;
+    setToolbarBusy('fetch');
+    try {
+      const res = await gitFetch(path.trim());
+      if (res.ok) { toast.success(res.output || t('gitGraph.fetchDone')); void loadGraph(path); }
+      else toast.error(res.error ?? t('gitGraph.fetchError'));
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Fetch error'); }
+    finally { setToolbarBusy(null); }
+  }, [path, loadGraph, t]);
+
+  const handlePull = useCallback(async () => {
+    if (!path.trim()) return;
+    setToolbarBusy('pull');
+    try {
+      const res = await gitPull(path.trim());
+      if (res.ok) { toast.success(res.output || t('gitGraph.pullDone')); void loadGraph(path); }
+      else toast.error(res.error ?? t('gitGraph.pullError'));
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Pull error'); }
+    finally { setToolbarBusy(null); }
+  }, [path, loadGraph, t]);
+
+  const handlePush = useCallback(async () => {
+    if (!path.trim()) return;
+    setToolbarBusy('push');
+    try {
+      const res = await gitPush(path.trim());
+      if (res.ok) toast.success(res.output || t('gitGraph.pushDone'));
+      else toast.error(res.error ?? t('gitGraph.pushError'));
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Push error'); }
+    finally { setToolbarBusy(null); }
+  }, [path, t]);
 
   // Auto-load saved repo on first mount
   useEffect(() => {
@@ -1180,7 +1404,7 @@ export const GitGraphView: React.FC = () => {
     );
   } else {
     const graphColW = (maxLane + 1) * LANE_W + SVG_PAD_R;
-    const detailPanelEl = selectedCommit ? (
+    const detailPanelEl = selectedCommit && !stagingActive ? (
       <CommitDetailPanel
         commit={selectedCommit}
         files={commitFiles}
@@ -1190,34 +1414,57 @@ export const GitGraphView: React.FC = () => {
         onSelectFile={setSelectedDiffFile}
       />
     ) : null;
-    const centerContent = selectedDiffFile && selectedHash ? (
-      <DiffViewer
+    const stagingPanelEl = stagingActive ? (
+      <StagingPanel
         repoPath={path}
-        hash={selectedHash}
-        file={selectedDiffFile}
-        onClose={() => setSelectedDiffFile(null)}
+        width={detailPanelWidth}
+        onCommitDone={handleCommitDone}
+        onClose={() => setStagingActive(false)}
       />
-    ) : (
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        {/* Column headers */}
-        <div className="flex shrink-0 items-center border-b border-border/40 bg-background px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-          <div style={{ width: REFS_COL_W }} className="shrink-0">{t('gitGraph.colBranchTag')}</div>
-          <div style={{ width: graphColW }} className="shrink-0 text-center">{t('gitGraph.colGraph')}</div>
-          <div className="min-w-0 flex-1 pl-3">{t('gitGraph.colCommit')}</div>
-          <div style={{ width: AUTHOR_COL_W }} className="shrink-0 pl-2">{t('gitGraph.colAuthor')}</div>
-          <div style={{ width: DATE_COL_W }} className="shrink-0 pl-2 text-right">{t('gitGraph.colDate')}</div>
+    ) : null;
+    const rightPanelEl = stagingActive ? stagingPanelEl : detailPanelEl;
+    const showResizeHandle = stagingActive || !!detailPanelEl;
+
+    const fetchBtnCls = `size-3.5 ${toolbarBusy === 'fetch' ? 'animate-spin' : ''}`;
+    const pullBtnCls  = `size-3.5 ${toolbarBusy === 'pull'  ? 'animate-bounce' : ''}`;
+    const pushBtnCls  = `size-3.5 ${toolbarBusy === 'push'  ? 'animate-bounce' : ''}`;
+    const tbBtnBase   = 'flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground/70 hover:bg-muted disabled:opacity-40';
+    const wipRowCls = stagingActive
+      ? 'flex w-full items-center gap-2 border-b border-border/40 px-4 py-1.5 text-left text-xs bg-muted/50 text-foreground cursor-pointer'
+      : 'flex w-full items-center gap-2 border-b border-border/40 px-4 py-1.5 text-left text-xs text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground/80 cursor-pointer';
+
+    // Filtered (search) vs normal (virtualizer) scroll content
+    let scrollInnerEl: React.ReactNode;
+    if (searchQuery.trim()) {
+      const noMatch = filteredCommits.length === 0;
+      const noMatchEl = noMatch
+        ? <p className="p-4 text-xs text-muted-foreground">{t('gitGraph.noResults')}</p>
+        : null;
+      scrollInnerEl = (
+        <div ref={listScrollRef} className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
+          <div className="min-w-0 w-full">
+            {noMatchEl}
+            {filteredCommits.map((c) => (
+              <CommitRow key={c.hash} commit={c} isSelected={c.hash === selectedHash} onSelect={setSelectedHash} onContextMenu={handleContextMenu} />
+            ))}
+          </div>
         </div>
-        {/* Scrollable rows: refs | graph | commits */}
-        <div className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
+      );
+    } else {
+      scrollInnerEl = (
+        <div ref={listScrollRef} className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
           <div style={{ width: REFS_COL_W }} className="shrink-0">
-            {commits.map((c) => {
-              const refCellCls = `flex items-center gap-1 overflow-hidden ${c.hash === selectedHash ? 'bg-muted/70' : ''}`;
-              return (
-                <div key={c.hash} style={{ height: ROW_H, minHeight: ROW_H }} className={refCellCls}>
-                  {c.refs.map((r) => <RefBadge key={r} refStr={r} />)}
-                </div>
-              );
-            })}
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const c = commits[vi.index];
+                const refCellCls = `flex items-center gap-1 overflow-hidden ${c.hash === selectedHash ? 'bg-muted/70' : ''}`;
+                return (
+                  <div key={c.hash} style={{ position: 'absolute', top: vi.start, height: ROW_H, left: 0, right: 0 }} className={refCellCls}>
+                    {c.refs.map((r) => <RefBadge key={r} refStr={r} />)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <GraphSvg
             commits={commits}
@@ -1228,34 +1475,86 @@ export const GitGraphView: React.FC = () => {
             onContextMenu={handleContextMenu}
           />
           <div className="min-w-0 flex-1 border-l border-border/40">
-            {commits.map((c) => (
-              <CommitRow
-                key={c.hash}
-                commit={c}
-                isSelected={c.hash === selectedHash}
-                onSelect={setSelectedHash}
-                onContextMenu={handleContextMenu}
-              />
-            ))}
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const c = commits[vi.index];
+                return (
+                  <div key={c.hash} style={{ position: 'absolute', top: vi.start, height: ROW_H, left: 0, right: 0 }}>
+                    <CommitRow commit={c} isSelected={c.hash === selectedHash} onSelect={setSelectedHash} onContextMenu={handleContextMenu} />
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
+      );
+    }
+
+    const commitTableEl = (
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 px-2 py-1">
+          <button type="button" onClick={() => void handleFetch()} disabled={!path.trim() || !!toolbarBusy} className={tbBtnBase} title={t('gitGraph.fetchTitle')}>
+            <RefreshCw className={fetchBtnCls} /><span>{t('gitGraph.fetchLabel')}</span>
+          </button>
+          <button type="button" onClick={() => void handlePull()} disabled={!path.trim() || !!toolbarBusy} className={tbBtnBase} title={t('gitGraph.pullTitle')}>
+            <ArrowDown className={pullBtnCls} /><span>{t('gitGraph.pullLabel')}</span>
+          </button>
+          <button type="button" onClick={() => void handlePush()} disabled={!path.trim() || !!toolbarBusy} className={tbBtnBase} title={t('gitGraph.pushTitle')}>
+            <ArrowUp className={pushBtnCls} /><span>{t('gitGraph.pushLabel')}</span>
+          </button>
+          <div className="mx-1 h-4 w-px bg-border/40" />
+          <Search className="size-3 shrink-0 text-muted-foreground/50" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('gitGraph.searchPlaceholder')}
+            className="flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+          />
+          {!!searchQuery && (
+            <button type="button" onClick={() => setSearchQuery('')} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+              <X className="size-3" />
+            </button>
+          )}
+        </div>
+        {/* Column headers */}
+        <div className="flex shrink-0 items-center border-b border-border/40 bg-background px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+          <div style={{ width: REFS_COL_W }} className="shrink-0">{t('gitGraph.colBranchTag')}</div>
+          <div style={{ width: graphColW }} className="shrink-0 text-center">{t('gitGraph.colGraph')}</div>
+          <div className="min-w-0 flex-1 pl-3">{t('gitGraph.colCommit')}</div>
+          <div style={{ width: AUTHOR_COL_W }} className="shrink-0 pl-2">{t('gitGraph.colAuthor')}</div>
+          <div style={{ width: DATE_COL_W }} className="shrink-0 pl-2 text-right">{t('gitGraph.colDate')}</div>
+        </div>
+        {/* WIP row */}
+        <button type="button" onClick={openStaging} className={wipRowCls}>
+          <Circle className="size-3.5 shrink-0 text-muted-foreground/40" />
+          <span className="min-w-0 flex-1 truncate italic">{t('gitGraph.wipRowPlaceholder')}</span>
+        </button>
+        {scrollInnerEl}
       </div>
     );
+
+    const centerContent = selectedDiffFile && selectedHash ? (
+      <DiffViewer
+        repoPath={path}
+        hash={selectedHash}
+        file={selectedDiffFile}
+        onClose={() => setSelectedDiffFile(null)}
+      />
+    ) : commitTableEl;
+
     bodyContent = (
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: branch tree */}
         <BranchPanel commits={commits} selectedHash={selectedHash} onSelect={setSelectedHash} />
-        {/* Center: commit table or diff viewer */}
         {centerContent}
-        {/* Resize handle */}
-        {detailPanelEl && (
+        {showResizeHandle && (
           <div
             onMouseDown={handleDetailResizeStart}
             className="w-1 shrink-0 cursor-col-resize border-l border-border/40 hover:border-primary/60 hover:bg-primary/10 transition-colors"
           />
         )}
-        {/* Right: commit detail */}
-        {detailPanelEl}
+        {rightPanelEl}
       </div>
     );
   }

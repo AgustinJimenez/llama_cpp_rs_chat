@@ -529,6 +529,34 @@ pub async fn dispatch(
             super::routes::git::handle_git_file_diff(req).await?
         }
 
+        (&Method::GET, "/api/git/status") => {
+            super::routes::git::handle_git_status(req).await?
+        }
+
+        (&Method::POST, "/api/git/stage") => {
+            super::routes::git::handle_git_stage(req).await?
+        }
+
+        (&Method::POST, "/api/git/unstage") => {
+            super::routes::git::handle_git_unstage(req).await?
+        }
+
+        (&Method::POST, "/api/git/commit") => {
+            super::routes::git::handle_git_commit_create(req).await?
+        }
+
+        (&Method::POST, "/api/git/fetch") => {
+            super::routes::git::handle_git_fetch(req).await?
+        }
+
+        (&Method::POST, "/api/git/pull") => {
+            super::routes::git::handle_git_pull(req).await?
+        }
+
+        (&Method::POST, "/api/git/push") => {
+            super::routes::git::handle_git_push(req).await?
+        }
+
         (&Method::POST, "/api/upload") => {
             super::routes::files::handle_post_upload(req, bridge.clone()).await?
         }

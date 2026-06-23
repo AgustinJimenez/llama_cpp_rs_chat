@@ -4,6 +4,195 @@ use std::process::Command;
 
 use crate::response_helpers::{json_error, json_raw};
 
+// ── Staging / commit helpers ──────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+struct StatusEntry { status: String, path: String }
+
+#[derive(serde::Serialize)]
+struct GitStatusResult { staged: Vec<StatusEntry>, unstaged: Vec<StatusEntry> }
+
+async fn read_json_body(req: Request<Body>) -> serde_json::Value {
+    let bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+fn simple_ok() -> Response<Body> {
+    json_raw(StatusCode::OK, r#"{"ok":true,"error":null}"#.to_string())
+}
+
+fn simple_err(msg: &str) -> Response<Body> {
+    json_raw(StatusCode::OK, serde_json::json!({"ok":false,"error":msg}).to_string())
+}
+
+fn run_git_status(path: &str) -> Result<GitStatusResult, String> {
+    let out = Command::new("git")
+        .args(["-C", path, "status", "--porcelain=v1"])
+        .output()
+        .map_err(|e| format!("git not available: {e}"))?;
+    if !out.status.success() {
+        let s = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if s.is_empty() { "git status failed".into() } else { s });
+    }
+    let mut staged: Vec<StatusEntry> = vec![];
+    let mut unstaged: Vec<StatusEntry> = vec![];
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if line.len() < 3 { continue; }
+        let x = line.chars().next().unwrap_or(' ');
+        let y = line.chars().nth(1).unwrap_or(' ');
+        let raw = &line[3..];
+        let file_path = if raw.contains(" -> ") {
+            raw.split(" -> ").last().unwrap_or(raw).trim().to_string()
+        } else { raw.trim().to_string() };
+        if x != ' ' && x != '?' {
+            staged.push(StatusEntry { status: x.to_string(), path: file_path.clone() });
+        }
+        if y != ' ' && y != '?' {
+            unstaged.push(StatusEntry { status: y.to_string(), path: file_path.clone() });
+        } else if x == '?' && y == '?' {
+            unstaged.push(StatusEntry { status: "?".to_string(), path: file_path });
+        }
+    }
+    Ok(GitStatusResult { staged, unstaged })
+}
+
+fn run_git_simple(path: &str, args: &[&str]) -> Result<String, String> {
+    let mut a = vec!["-C", path];
+    a.extend_from_slice(args);
+    let out = Command::new("git").args(&a).output().map_err(|e| format!("git: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if out.status.success() {
+        Ok(if stdout.is_empty() { if stderr.is_empty() { "Done".into() } else { stderr } } else { stdout })
+    } else {
+        Err(if stderr.is_empty() { stdout } else { stderr })
+    }
+}
+
+/// GET /api/git/status?path=
+pub async fn handle_git_status(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let query = req.uri().query().unwrap_or("").to_owned();
+    let path = query.split('&').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        if k == "path" { urlencoding::decode(v).ok().map(|s| s.into_owned()) } else { None }
+    });
+    let Some(path) = path else {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "path required"));
+    };
+    let result = tokio::task::spawn_blocking(move || run_git_status(&path))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(s) => Ok(json_raw(StatusCode::OK, serde_json::json!({"staged":s.staged,"unstaged":s.unstaged,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"staged":[],"unstaged":[],"error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/stage  body: {path, files: []}  (empty files = stage all)
+pub async fn handle_git_stage(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let files: Vec<String> = body["files"].as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || {
+        if files.is_empty() {
+            run_git_simple(&path, &["add", "-A"])
+        } else {
+            let mut args: Vec<String> = vec!["add".into(), "--".into()];
+            args.extend(files);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            run_git_simple(&path, &refs)
+        }
+    }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(_) => Ok(simple_ok()),
+        Err(e) => Ok(simple_err(&e)),
+    }
+}
+
+/// POST /api/git/unstage  body: {path, files: []}  (empty = unstage all)
+pub async fn handle_git_unstage(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let files: Vec<String> = body["files"].as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || {
+        if files.is_empty() {
+            run_git_simple(&path, &["reset", "HEAD"])
+        } else {
+            let mut args: Vec<String> = vec!["restore".into(), "--staged".into(), "--".into()];
+            args.extend(files);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            run_git_simple(&path, &refs)
+        }
+    }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(_) => Ok(simple_ok()),
+        Err(e) => Ok(simple_err(&e)),
+    }
+}
+
+/// POST /api/git/commit  body: {path, message, description?}
+pub async fn handle_git_commit_create(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let message = body["message"].as_str().unwrap_or("").to_string();
+    let description = body["description"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || message.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "path and message required"));
+    }
+    let result = tokio::task::spawn_blocking(move || {
+        let full = if description.is_empty() { message } else { format!("{}\n\n{}", message, description) };
+        run_git_simple(&path, &["commit", "-m", &full])
+    }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/fetch  body: {path}
+pub async fn handle_git_fetch(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["fetch", "--all"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/pull  body: {path}
+pub async fn handle_git_pull(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["pull"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/push  body: {path}
+pub async fn handle_git_push(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["push"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
 #[derive(serde::Serialize)]
 struct GitEntry {
     hash: String,
