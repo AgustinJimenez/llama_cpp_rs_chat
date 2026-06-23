@@ -524,7 +524,7 @@ const DiffViewer: React.FC<{
   const [viewMode, setViewMode] = useState<DiffViewMode>(
     () => (localStorage.getItem('gitGraphDiffMode') as DiffViewMode | null) ?? 'inline',
   );
-  const [metaCollapsed, setMetaCollapsed] = useState(false);
+  const [metaCollapsed, setMetaCollapsed] = useState(true);
 
   useEffect(() => {
     const cacheKey = `${hash}:${file}`;
