@@ -1314,7 +1314,7 @@ export const GitGraphView: React.FC = () => {
     setToolbarBusy('fetch');
     try {
       const res = await gitFetch(path.trim());
-      if (res.ok) { toast.success(res.output || t('gitGraph.fetchDone')); void loadGraph(path); }
+      if (res.ok) { void loadGraph(path); }
       else toast.error(res.error ?? t('gitGraph.fetchError'));
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Fetch error'); }
     finally { setToolbarBusy(null); }
