@@ -1,12 +1,15 @@
 import type { Message } from '../types';
 
+const UUID_VARIANT_MASK = 0x3;
+const UUID_VARIANT_BITS = 0x8;
+
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replaceAll(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    return (c === 'x' ? r : (r & UUID_VARIANT_MASK) | UUID_VARIANT_BITS).toString(16);
   });
 }
 

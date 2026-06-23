@@ -1,7 +1,7 @@
 import type { ToolCall } from '../types';
 
-import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
 import { generateId } from './messageUtils';
+import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
 
 /**
  * Tool parser interface for different model formats

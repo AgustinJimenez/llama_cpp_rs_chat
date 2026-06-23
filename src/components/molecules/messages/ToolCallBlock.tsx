@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { ChevronDown, ChevronRight, Square, BookOpen } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -110,12 +111,14 @@ const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string
   },
 };
 
+const SUMMARY_MAX_LEN = 80;
+
 function defaultToolSummary(args: Record<string, unknown>): string {
   // Show only the first string value — it identifies what the tool acted on.
   // Skip numeric/boolean config params (e.g. max_chars, timeout) entirely.
   for (const val of Object.values(args)) {
     if (typeof val === 'string' && val.length > 0 && !/^\d+(\.\d+)?$/.test(val)) {
-      return val.slice(0, 80) + (val.length > 80 ? '...' : '');
+      return val.slice(0, SUMMARY_MAX_LEN) + (val.length > SUMMARY_MAX_LEN ? '...' : '');
     }
   }
   return '';
@@ -452,6 +455,37 @@ const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = 
   const truncated = lines.length > MAX_DIFF_LINES;
   const visible = truncated ? lines.slice(0, MAX_DIFF_LINES) : lines;
 
+  const truncatedNote = truncated ? (
+    <div className="px-3 py-1 text-[11px] text-muted-foreground">
+      {`… ${lines.length - MAX_DIFF_LINES} more lines`}
+    </div>
+  ) : null;
+  type IndexedLine = { type: 'add' | 'remove'; content: string; lineKey: number };
+  const indexedLines: IndexedLine[] = visible.map((line, i) => ({ ...line, lineKey: i }));
+  const diffLines = indexedLines.length > 0 ? (
+    <div className="max-h-52 overflow-y-auto overscroll-contain">
+      <pre className="bg-card font-mono text-xs leading-5">
+        {indexedLines.map((line) => {
+          const isAdd = line.type === 'add';
+          const bgColor = isAdd ? 'rgba(63,185,80,0.07)' : 'rgba(248,81,73,0.07)';
+          const fgColor = isAdd ? '#3fb950' : '#f85149';
+          const prefix = isAdd ? '+' : '-';
+          return (
+            <div key={line.lineKey} style={{ backgroundColor: bgColor }} className="flex px-3">
+              <span className="mr-2 w-3 flex-shrink-0 select-none" style={{ color: fgColor }}>
+                {prefix}
+              </span>
+              <span className="flex-1 whitespace-pre-wrap break-all" style={{ color: fgColor }}>
+                {line.content}
+              </span>
+            </div>
+          );
+        })}
+        {truncatedNote}
+      </pre>
+    </div>
+  ) : null;
+
   return (
     <div className="border-t border-border">
       {/* File path + operation badge */}
@@ -465,41 +499,7 @@ const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = 
         </span>
       </div>
       {/* Diff lines */}
-      {visible.length > 0 && (
-        <div className="max-h-52 overflow-y-auto overscroll-contain">
-          <pre className="bg-card font-mono text-xs leading-5">
-            {visible.map((line, i) => (
-              <div
-                key={i}
-                style={{
-                  backgroundColor: line.type === 'add'
-                    ? 'rgba(63,185,80,0.07)'
-                    : 'rgba(248,81,73,0.07)',
-                }}
-                className="flex px-3"
-              >
-                <span
-                  className="mr-2 w-3 flex-shrink-0 select-none"
-                  style={{ color: line.type === 'add' ? '#3fb950' : '#f85149' }}
-                >
-                  {line.type === 'add' ? '+' : '-'}
-                </span>
-                <span
-                  className="flex-1 whitespace-pre-wrap break-all"
-                  style={{ color: line.type === 'add' ? '#3fb950' : '#f85149' }}
-                >
-                  {line.content}
-                </span>
-              </div>
-            ))}
-            {truncated && (
-              <div className="px-3 py-1 text-[11px] text-muted-foreground">
-                … {lines.length - MAX_DIFF_LINES} more lines
-              </div>
-            )}
-          </pre>
-        </div>
-      )}
+      {diffLines}
     </div>
   );
 };
@@ -521,16 +521,16 @@ const ImageGallery: React.FC<{ output: string }> = ({ output }) => {
     <div className="px-3 py-2">
       {!!title && <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>}
       <div className="flex flex-wrap gap-2">
-        {urls.map((src, i) => (
+        {urls.map((src, i) => ({ src, imgKey: i })).map((item) => (
           <button
-            key={i}
+            key={item.imgKey}
             type="button"
             className="overflow-hidden rounded-lg border border-border/50 transition-colors hover:border-primary/50"
-            onClick={() => setLightbox(src)}
+            onClick={() => setLightbox(item.src)}
           >
             <img
-              src={src}
-              alt={`Image ${i + 1}`}
+              src={item.src}
+              alt={String(item.imgKey + 1)}
               className="h-32 w-auto max-w-[200px] object-cover"
               loading="lazy"
             />
@@ -548,12 +548,18 @@ const ImageGallery: React.FC<{ output: string }> = ({ output }) => {
               if (e.key === 'Escape' || e.key === 'Enter') setLightbox(null);
             }}
           >
-            <img
-              src={lightbox}
-              alt="Full size"
-              className="max-h-full max-w-full object-contain"
+            <button
+              type="button"
               onClick={(e) => e.stopPropagation()}
-            />
+              onKeyDown={(e) => e.stopPropagation()}
+              className="focus:outline-none"
+            >
+              <img
+                src={lightbox}
+                alt="Lightbox"
+                className="max-h-full max-w-full object-contain"
+              />
+            </button>
             <button
               onClick={() => setLightbox(null)}
               className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -633,27 +639,30 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
     />
   );
   const hasCleanOutput = hasOutput && (cleanOutput ?? '').trim().length > 0;
+  const diffEl = hasDiffView ? (
+    <FileDiffView
+      name={toolCall.name}
+      args={toolCall.arguments as Record<string, unknown>}
+    />
+  ) : null;
+  const outputEl = hasCleanOutput ? (
+    <CompletedOutput
+      output={cleanOutput ?? ''}
+      isExpanded={isOutputExpanded}
+      onToggle={() => setIsOutputExpanded(!isOutputExpanded)}
+      language={outputLanguage}
+      isStreaming={isExecuting}
+    />
+  ) : null;
+  const galleryEl = displayImagesJson !== null ? <ImageGallery output={displayImagesJson} /> : null;
 
   return (
     <div className="flat-card overflow-hidden" style={{ contain: 'content' }}>
       {headerEl}
-      {hasDiffView && (
-        <FileDiffView
-          name={toolCall.name}
-          args={toolCall.arguments as Record<string, unknown>}
-        />
-      )}
+      {diffEl}
       {!!isExpanded && expandedContent}
-      {!!hasCleanOutput && (
-        <CompletedOutput
-          output={cleanOutput ?? ''}
-          isExpanded={isOutputExpanded}
-          onToggle={() => setIsOutputExpanded(!isOutputExpanded)}
-          language={outputLanguage}
-          isStreaming={isExecuting}
-        />
-      )}
-      {displayImagesJson !== null && <ImageGallery output={displayImagesJson} />}
+      {outputEl}
+      {galleryEl}
     </div>
   );
 };
@@ -742,6 +751,23 @@ const ContextToolGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean
   );
   const summary = buildContextSummary(toolCalls);
   const label = anyExecuting ? 'Gathering context' : 'Gathered context';
+  const statusIcon = anyExecuting ? (
+    <span className="inline-block size-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
+  ) : (
+    <BookOpen className="size-3 flex-shrink-0 text-muted-foreground" />
+  );
+  const chevron = expanded ? (
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
+  ) : (
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
+  );
+  const expandedSection = expanded ? (
+    <div className="divide-y divide-border border-t border-border">
+      {toolCalls.map((tc) => (
+        <SingleToolCall key={tc.id} toolCall={tc} isGenerating={isGenerating} />
+      ))}
+    </div>
+  ) : null;
 
   return (
     <div className="flat-card overflow-hidden">
@@ -749,27 +775,13 @@ const ContextToolGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-2 bg-muted px-3 py-2 text-left transition-colors hover:bg-accent"
       >
-        {anyExecuting ? (
-          <span className="inline-block size-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
-        ) : (
-          <BookOpen className="size-3 flex-shrink-0 text-muted-foreground" />
-        )}
+        {statusIcon}
         <span className="text-xs font-medium text-foreground">{label}:</span>
         <span className="flex-1 truncate text-xs text-muted-foreground">{summary}</span>
         <span className="text-xs text-muted-foreground/60">{toolCalls.length}</span>
-        {expanded ? (
-          <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
-        ) : (
-          <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
-        )}
+        {chevron}
       </button>
-      {!!expanded && (
-        <div className="divide-y divide-border border-t border-border">
-          {toolCalls.map((tc) => (
-            <SingleToolCall key={tc.id} toolCall={tc} isGenerating={isGenerating} />
-          ))}
-        </div>
-      )}
+      {expandedSection}
     </div>
   );
 };
@@ -788,17 +800,24 @@ export const ToolCallBlock = React.memo(({ toolCalls, isGenerating }: ToolCallBl
 
   return (
     <div className="space-y-2">
-      {groups.map((group) =>
-        group.type === 'context-group' ? (
-          <ContextToolGroup
-            key={group.toolCalls[0].id}
-            toolCalls={group.toolCalls}
+      {groups.map((group) => {
+        if (group.type === 'context-group') {
+          return (
+            <ContextToolGroup
+              key={group.toolCalls[0].id}
+              toolCalls={group.toolCalls}
+              isGenerating={isGenerating}
+            />
+          );
+        }
+        return (
+          <SingleToolCall
+            key={group.toolCall.id}
+            toolCall={group.toolCall}
             isGenerating={isGenerating}
           />
-        ) : (
-          <SingleToolCall key={group.toolCall.id} toolCall={group.toolCall} isGenerating={isGenerating} />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 });

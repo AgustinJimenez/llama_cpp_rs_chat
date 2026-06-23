@@ -9,9 +9,9 @@ import { useAgentContext } from '../contexts/AgentContext';
 import type { Message } from '../types';
 import { createChatTransport } from '../utils/chatTransport';
 import type { TimingInfo } from '../utils/chatTransport';
+import { generateId } from '../utils/messageUtils';
 import { getConversation, getModelStatus, truncateConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
-import { generateId } from '../utils/messageUtils';
 
 import { useConnection } from './useConnection';
 import { useConversationUrl } from './useConversationUrl';

@@ -1,8 +1,8 @@
 import type { ChatRequest } from '../types';
 
+import { generateId } from './messageUtils';
 import { getWsAuthParam } from './remoteAuth';
 import { isTauriEnv, notifyIfUnfocused } from './tauri';
-import { generateId } from './messageUtils';
 
 export interface TokenBreakdown {
   system_prompt: number;
