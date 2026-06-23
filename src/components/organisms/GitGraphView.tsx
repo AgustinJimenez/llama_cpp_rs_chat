@@ -1,5 +1,5 @@
 /* eslint-disable max-lines */
-import { AlignJustify, ArrowDown, ArrowLeftRight, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Circle, Columns2, Filter, FolderOpen, FolderTree, GitBranch, List, Minus, Pencil, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { AlignJustify, ArrowDown, ArrowLeftRight, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Columns2, Filter, FolderOpen, FolderTree, GitBranch, List, Minus, Pencil, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -879,13 +879,14 @@ const CommitDetailPanel: React.FC<{
 const StagingPanel: React.FC<{
   repoPath: string;
   width: number;
+  commitMsg: string;
+  onCommitMsgChange: (v: string) => void;
   onCommitDone: () => void;
   onClose: () => void;
-}> = ({ repoPath, width, onCommitDone, onClose }) => {
+}> = ({ repoPath, width, commitMsg, onCommitMsgChange, onCommitDone, onClose }) => {
   const { t } = useTranslation();
   const [status, setStatus] = useState<GitStatusResult | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
-  const [commitMsg, setCommitMsg] = useState('');
   const [commitDesc, setCommitDesc] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
@@ -933,12 +934,12 @@ const StagingPanel: React.FC<{
     setOpError(null);
     try {
       const res = await gitCommit(repoPath, commitMsg.trim(), commitDesc.trim());
-      if (res.ok) { setCommitMsg(''); setCommitDesc(''); onCommitDone(); }
+      if (res.ok) { onCommitMsgChange(''); setCommitDesc(''); onCommitDone(); }
       else setOpError(res.error ?? 'Commit failed');
     } catch (error) {
       setOpError(error instanceof Error ? error.message : 'Commit error');
     } finally { setIsCommitting(false); }
-  }, [repoPath, commitMsg, commitDesc, onCommitDone]);
+  }, [repoPath, commitMsg, commitDesc, onCommitDone, onCommitMsgChange]);
 
   const stagedCount   = status?.staged.length ?? 0;
   const unstagedCount = status?.unstaged.length ?? 0;
@@ -1016,7 +1017,7 @@ const StagingPanel: React.FC<{
         <input
           type="text"
           value={commitMsg}
-          onChange={(e) => setCommitMsg(e.target.value)}
+          onChange={(e) => onCommitMsgChange(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && canCommit) void handleCommit(); }}
           placeholder={t('gitGraph.commitMsgPlaceholder')}
           className="w-full rounded border border-border/40 bg-muted/30 px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1187,6 +1188,7 @@ export const GitGraphView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [stagingActive, setStagingActive] = useState(false);
   const [toolbarBusy, setToolbarBusy] = useState<'fetch' | 'pull' | 'push' | null>(null);
+  const [wipMsg, setWipMsg] = useState('');
 
   const filteredCommits = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1418,6 +1420,8 @@ export const GitGraphView: React.FC = () => {
       <StagingPanel
         repoPath={path}
         width={detailPanelWidth}
+        commitMsg={wipMsg}
+        onCommitMsgChange={setWipMsg}
         onCommitDone={handleCommitDone}
         onClose={() => setStagingActive(false)}
       />
@@ -1428,10 +1432,8 @@ export const GitGraphView: React.FC = () => {
     const fetchBtnCls = `size-3.5 ${toolbarBusy === 'fetch' ? 'animate-spin' : ''}`;
     const pullBtnCls  = `size-3.5 ${toolbarBusy === 'pull'  ? 'animate-bounce' : ''}`;
     const pushBtnCls  = `size-3.5 ${toolbarBusy === 'push'  ? 'animate-bounce' : ''}`;
-    const tbBtnBase   = 'flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground/70 hover:bg-muted disabled:opacity-40';
-    const wipRowCls = stagingActive
-      ? 'flex w-full items-center gap-2 border-b border-border/40 px-4 py-1.5 text-left text-xs bg-muted/50 text-foreground cursor-pointer'
-      : 'flex w-full items-center gap-2 border-b border-border/40 px-4 py-1.5 text-left text-xs text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground/80 cursor-pointer';
+    const tbBtnBase   = 'flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground/90 hover:bg-muted disabled:opacity-40';
+    const wipRowBg = stagingActive ? 'bg-muted/40' : 'hover:bg-muted/20';
 
     // Filtered (search) vs normal (virtualizer) scroll content
     let scrollInnerEl: React.ReactNode;
@@ -1519,18 +1521,46 @@ export const GitGraphView: React.FC = () => {
           )}
         </div>
         {/* Column headers */}
-        <div className="flex shrink-0 items-center border-b border-border/40 bg-background px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+        <div className="flex shrink-0 items-center border-b border-border/40 bg-background px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           <div style={{ width: REFS_COL_W }} className="shrink-0">{t('gitGraph.colBranchTag')}</div>
           <div style={{ width: graphColW }} className="shrink-0 text-center">{t('gitGraph.colGraph')}</div>
           <div className="min-w-0 flex-1 pl-3">{t('gitGraph.colCommit')}</div>
           <div style={{ width: AUTHOR_COL_W }} className="shrink-0 pl-2">{t('gitGraph.colAuthor')}</div>
           <div style={{ width: DATE_COL_W }} className="shrink-0 pl-2 text-right">{t('gitGraph.colDate')}</div>
         </div>
-        {/* WIP row */}
-        <button type="button" onClick={openStaging} className={wipRowCls}>
-          <Circle className="size-3.5 shrink-0 text-muted-foreground/40" />
-          <span className="min-w-0 flex-1 truncate italic">{t('gitGraph.wipRowPlaceholder')}</span>
-        </button>
+        {/* WIP row — aligned with REFS | GRAPH | COMMIT columns */}
+        <div
+          style={{ height: ROW_H }}
+          className={`flex shrink-0 cursor-pointer items-center border-b border-border/40 px-4 ${wipRowBg}`}
+          role="button"
+          tabIndex={0}
+          onClick={openStaging}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openStaging(); }}
+        >
+          <div style={{ width: REFS_COL_W }} className="shrink-0" />
+          <svg style={{ width: graphColW }} height={ROW_H} className="shrink-0 text-muted-foreground/50">
+            <circle
+              cx={LANE_W / 2}
+              cy={ROW_H / 2}
+              r={NODE_R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeDasharray="3 2"
+            />
+          </svg>
+          <div className="min-w-0 flex-1 border-l border-border/40 pl-2">
+            <input
+              type="text"
+              value={wipMsg}
+              onChange={(e) => { setWipMsg(e.target.value); setStagingActive(true); }}
+              onFocus={openStaging}
+              onClick={(e) => e.stopPropagation()}
+              placeholder={t('gitGraph.wipRowPlaceholder')}
+              className="w-full bg-transparent text-xs text-foreground/80 placeholder:text-muted-foreground/50 focus:outline-none"
+            />
+          </div>
+        </div>
         {scrollInnerEl}
       </div>
     );
