@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Loader2,
   PowerOff,
+  GitBranch,
   type LucideIcon,
 } from 'lucide-react';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -357,6 +358,8 @@ export const ChatHeader = React.memo(
       toggleBrowserView,
       closeBrowserView,
       browserViewUrl,
+      isGitGraphOpen,
+      toggleGitGraph,
     } = useUIContext();
 
     // When user clicks MD/TXT/RAW, close browser view to show the chat
@@ -401,6 +404,15 @@ export const ChatHeader = React.memo(
             title="Toggle browser view"
           >
             <Globe className="size-3.5" />
+          </button>
+
+          <button
+            onClick={toggleGitGraph}
+            className={`btn-icon ${isGitGraphOpen ? 'active' : ''}`}
+            title="Toggle git graph"
+            aria-label="Toggle git graph"
+          >
+            <GitBranch className="size-3.5" />
           </button>
 
           {!!modelLoaded && (

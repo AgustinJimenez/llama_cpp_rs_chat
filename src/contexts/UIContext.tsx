@@ -19,6 +19,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
   const [isBrowserViewOpen, setIsBrowserViewOpen] = useState(false);
+  const [isGitGraphOpen, setIsGitGraphOpen] = useState(
+    () => localStorage.getItem('gitGraphOpen') === 'true',
+  );
   // eslint-disable-next-line react/hook-use-state
   const [sidebarWidth, setSidebarWidthRaw] = useState<number>(() =>
     parseInt(localStorage.getItem('sidebarWidth') || '240', 10),
@@ -62,6 +65,17 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   }, []);
   const clearBrowserView = closeBrowserView;
   const toggleBrowserView = useCallback(() => setIsBrowserViewOpen((p) => !p), []);
+  const toggleGitGraph = useCallback(() => {
+    setIsGitGraphOpen((p) => {
+      const next = !p;
+      localStorage.setItem('gitGraphOpen', String(next));
+      return next;
+    });
+  }, []);
+  const closeGitGraph = useCallback(() => {
+    setIsGitGraphOpen(false);
+    localStorage.setItem('gitGraphOpen', 'false');
+  }, []);
 
   const value = useMemo<UIContextValue>(
     () => ({
@@ -94,6 +108,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       closeBrowserView,
       clearBrowserView,
       toggleBrowserView,
+      isGitGraphOpen,
+      toggleGitGraph,
+      closeGitGraph,
       sidebarWidth,
       setSidebarWidth,
     }),
@@ -127,6 +144,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       closeBrowserView,
       toggleBrowserView,
       clearBrowserView,
+      isGitGraphOpen,
+      toggleGitGraph,
+      closeGitGraph,
       sidebarWidth,
       setSidebarWidth,
     ],

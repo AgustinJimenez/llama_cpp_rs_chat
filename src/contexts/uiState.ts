@@ -33,6 +33,10 @@ export interface UIContextValue {
   closeBrowserView: () => void;
   clearBrowserView: () => void;
   toggleBrowserView: () => void;
+  /** Git graph view */
+  isGitGraphOpen: boolean;
+  toggleGitGraph: () => void;
+  closeGitGraph: () => void;
   sidebarWidth: number;
   setSidebarWidth: (w: number) => void;
 }

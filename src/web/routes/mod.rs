@@ -88,3 +88,7 @@ pub mod remote {
 pub mod approval {
     pub use llama_chat_web::routes::approval::*;
 }
+#[allow(unused_imports)]
+pub mod git {
+    pub use llama_chat_web::routes::git::*;
+}

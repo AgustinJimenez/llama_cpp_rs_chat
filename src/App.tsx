@@ -9,6 +9,7 @@ import { AgentSelector } from './components/organisms/AgentSelector';
 import { BrowserView } from './components/organisms/BrowserView';
 import { ConversationLog } from './components/organisms/ConversationLog';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
+import { GitGraphView } from './components/organisms/GitGraphView';
 import { ProviderSelector } from './components/organisms/ProviderSelector';
 import { MessagesArea } from './components/templates';
 import { useAgentContext } from './contexts/AgentContext';
@@ -267,6 +268,7 @@ const MainContent = ({
     openModelConfig,
     toggleMobileSidebar,
     isBrowserViewOpen,
+    isGitGraphOpen,
     sidebarWidth,
   } = useUIContext();
 
@@ -309,6 +311,7 @@ const MainContent = ({
   }, [providerRef, providerParamsRef, activeProvider, activeProviderModel, activeProviderParams]);
 
   const browserViewClass = isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
+  const gitGraphClass = isGitGraphOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
   const providerReady = isProviderReady(
     modelStatus.loaded,
     activeProvider,
@@ -318,7 +321,7 @@ const MainContent = ({
 
   return (
     <main
-      className="ml-0 flex-1 md:ml-[var(--sidebar-w)]"
+      className="ml-0 min-w-0 flex-1 md:ml-[var(--sidebar-w)]"
       style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
     >
       {/* eslint-disable-next-line i18next/no-literal-string */}
@@ -363,7 +366,11 @@ const MainContent = ({
         <div className={browserViewClass}>
           <BrowserView />
         </div>
-        {!isBrowserViewOpen && messages.length === 0 && (
+        {/* GitGraphView — hidden via CSS, always mounted to preserve state */}
+        <div className={gitGraphClass}>
+          <GitGraphView />
+        </div>
+        {!isBrowserViewOpen && !isGitGraphOpen && messages.length === 0 && (
           <WelcomeMessage>
             {!!providerReady && (
               <div className="w-full max-w-2xl space-y-1 px-3 md:px-6">
@@ -381,7 +388,7 @@ const MainContent = ({
             )}
           </WelcomeMessage>
         )}
-        {!isBrowserViewOpen && messages.length > 0 && (
+        {!isBrowserViewOpen && !isGitGraphOpen && messages.length > 0 && (
           <>
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <MessageNav messages={messages} />

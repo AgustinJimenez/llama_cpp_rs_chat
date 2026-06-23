@@ -517,6 +517,18 @@ pub async fn dispatch(
             super::routes::files::handle_post_pick_file(bridge.clone()).await?
         }
 
+        (&Method::GET, "/api/git/log") => {
+            super::routes::git::handle_git_log(req).await?
+        }
+
+        (&Method::GET, "/api/git/commit-files") => {
+            super::routes::git::handle_git_commit_files(req).await?
+        }
+
+        (&Method::GET, "/api/git/file-diff") => {
+            super::routes::git::handle_git_file_diff(req).await?
+        }
+
         (&Method::POST, "/api/upload") => {
             super::routes::files::handle_post_upload(req, bridge.clone()).await?
         }
