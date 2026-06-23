@@ -438,7 +438,7 @@ const DIFF_LINE_CLS: Record<DiffLineType, string> = {
   add:     'bg-emerald-950/50 text-emerald-300',
   remove:  'bg-red-950/50 text-red-300',
   hunk:    'bg-muted/40 text-blue-400 font-semibold',
-  meta:    'text-muted-foreground/40',
+  meta:    'text-foreground/60',
   context: 'text-foreground/80',
 };
 
@@ -524,6 +524,7 @@ const DiffViewer: React.FC<{
   const [viewMode, setViewMode] = useState<DiffViewMode>(
     () => (localStorage.getItem('gitGraphDiffMode') as DiffViewMode | null) ?? 'inline',
   );
+  const [metaCollapsed, setMetaCollapsed] = useState(false);
 
   useEffect(() => {
     const cacheKey = `${hash}:${file}`;
@@ -548,8 +549,12 @@ const DiffViewer: React.FC<{
       .finally(() => { setDiffLoading(false); });
   }, [repoPath, hash, file]);
 
-  const splitRows  = useMemo(() => toSplitRows(lines), [lines]);
-  const hunkLines  = useMemo(() => lines.filter((l) => l.type !== 'context'), [lines]);
+  const visibleLines = useMemo(
+    () => metaCollapsed ? lines.filter((l) => l.type !== 'meta') : lines,
+    [lines, metaCollapsed],
+  );
+  const splitRows  = useMemo(() => toSplitRows(visibleLines), [visibleLines]);
+  const hunkLines  = useMemo(() => visibleLines.filter((l) => l.type !== 'context'), [visibleLines]);
   const fileName   = file.split('/').pop() ?? file;
 
   const handleModeChange = useCallback((mode: DiffViewMode) => {
@@ -560,7 +565,7 @@ const DiffViewer: React.FC<{
   let viewContent: React.ReactNode = null;
   if (viewMode === 'split')      viewContent = <DiffSplitTable rows={splitRows} />;
   else if (viewMode === 'hunk')  viewContent = <DiffInlineTable lines={hunkLines} />;
-  else                           viewContent = <DiffInlineTable lines={lines} />;
+  else                           viewContent = <DiffInlineTable lines={visibleLines} />;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden border-l border-border bg-background">
@@ -587,6 +592,14 @@ const DiffViewer: React.FC<{
             );
           })}
         </div>
+        <button
+          type="button"
+          onClick={() => setMetaCollapsed((p) => !p)}
+          className={`shrink-0 rounded p-1 hover:bg-muted ${metaCollapsed ? 'text-muted-foreground/50' : 'text-muted-foreground hover:text-foreground'}`}
+          title={metaCollapsed ? t('gitGraph.showCommitHeader') : t('gitGraph.hideCommitHeader')}
+        >
+          {metaCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </button>
         <button
           type="button"
           onClick={onClose}
