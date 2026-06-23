@@ -1287,6 +1287,10 @@ export const GitGraphView: React.FC = () => {
   }, []);
 
   const openStaging = useCallback(() => { setStagingActive(true); }, []);
+  const handleSelectHash = useCallback((hash: string) => {
+    setSelectedHash(hash);
+    setStagingActive(false);
+  }, []);
   const handleCommitDone = useCallback(() => {
     setStagingActive(false);
     void loadGraph(path);
@@ -1387,7 +1391,7 @@ export const GitGraphView: React.FC = () => {
             edges={edges}
             maxLane={maxLane}
             selectedHash={selectedHash}
-            onSelect={setSelectedHash}
+            onSelect={handleSelectHash}
             onContextMenu={handleContextMenu}
           />
         </div>
@@ -1397,7 +1401,7 @@ export const GitGraphView: React.FC = () => {
               key={c.hash}
               commit={c}
               isSelected={c.hash === selectedHash}
-              onSelect={setSelectedHash}
+              onSelect={handleSelectHash}
               onContextMenu={handleContextMenu}
             />
           ))}
@@ -1412,7 +1416,7 @@ export const GitGraphView: React.FC = () => {
         files={commitFiles}
         filesLoading={filesLoading}
         width={detailPanelWidth}
-        onSelectParent={setSelectedHash}
+        onSelectParent={handleSelectHash}
         onSelectFile={setSelectedDiffFile}
       />
     ) : null;
@@ -1447,7 +1451,7 @@ export const GitGraphView: React.FC = () => {
           <div className="min-w-0 w-full">
             {noMatchEl}
             {filteredCommits.map((c) => (
-              <CommitRow key={c.hash} commit={c} isSelected={c.hash === selectedHash} onSelect={setSelectedHash} onContextMenu={handleContextMenu} />
+              <CommitRow key={c.hash} commit={c} isSelected={c.hash === selectedHash} onSelect={handleSelectHash} onContextMenu={handleContextMenu} />
             ))}
           </div>
         </div>
@@ -1473,7 +1477,7 @@ export const GitGraphView: React.FC = () => {
             edges={edges}
             maxLane={maxLane}
             selectedHash={selectedHash}
-            onSelect={setSelectedHash}
+            onSelect={handleSelectHash}
             onContextMenu={handleContextMenu}
           />
           <div className="min-w-0 flex-1 border-l border-border/40">
@@ -1482,7 +1486,7 @@ export const GitGraphView: React.FC = () => {
                 const c = commits[vi.index];
                 return (
                   <div key={c.hash} style={{ position: 'absolute', top: vi.start, height: ROW_H, left: 0, right: 0 }}>
-                    <CommitRow commit={c} isSelected={c.hash === selectedHash} onSelect={setSelectedHash} onContextMenu={handleContextMenu} />
+                    <CommitRow commit={c} isSelected={c.hash === selectedHash} onSelect={handleSelectHash} onContextMenu={handleContextMenu} />
                   </div>
                 );
               })}
@@ -1576,7 +1580,7 @@ export const GitGraphView: React.FC = () => {
 
     bodyContent = (
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <BranchPanel commits={commits} selectedHash={selectedHash} onSelect={setSelectedHash} />
+        <BranchPanel commits={commits} selectedHash={selectedHash} onSelect={handleSelectHash} />
         {centerContent}
         {showResizeHandle && (
           <div
