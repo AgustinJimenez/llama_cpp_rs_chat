@@ -1325,7 +1325,7 @@ export const GitGraphView: React.FC = () => {
     setToolbarBusy('pull');
     try {
       const res = await gitPull(path.trim());
-      if (res.ok) { toast.success(res.output || t('gitGraph.pullDone')); void loadGraph(path); }
+      if (res.ok) { void loadGraph(path); }
       else toast.error(res.error ?? t('gitGraph.pullError'));
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Pull error'); }
     finally { setToolbarBusy(null); }
