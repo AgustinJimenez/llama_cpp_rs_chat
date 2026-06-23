@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Square } from 'lucide-react';
+import { ChevronDown, ChevronRight, Square, BookOpen } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -658,18 +658,147 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   );
 };
 
+// ─── Context-tool grouping ────────────────────────────────────────────────────
+
+/** Read-only tools with no visible side effects — grouped into a collapsed batch. */
+const CONTEXT_TOOLS = new Set([
+  'read_file',
+  'list_directory',
+  'find_files',
+  'search_files',
+  'web_fetch',
+  'web_search',
+  'check_background_process',
+  'check_environment',
+  'find_executable',
+  'git_status',
+  'git_diff',
+]);
+
+const CONTEXT_TOOL_LABELS: Record<string, string> = {
+  read_file: 'read',
+  list_directory: 'list',
+  find_files: 'find',
+  search_files: 'search',
+  web_fetch: 'fetch',
+  web_search: 'search',
+  check_background_process: 'check',
+  check_environment: 'check',
+  find_executable: 'find',
+  git_status: 'git',
+  git_diff: 'git',
+};
+
+type ToolGroup =
+  | { type: 'single'; toolCall: ToolCall }
+  | { type: 'context-group'; toolCalls: ToolCall[] };
+
+function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
+  const groups: ToolGroup[] = [];
+  let pending: ToolCall[] = [];
+
+  const flushPending = () => {
+    if (pending.length === 1) {
+      groups.push({ type: 'single', toolCall: pending[0] });
+    } else if (pending.length > 1) {
+      groups.push({ type: 'context-group', toolCalls: [...pending] });
+    }
+    pending = [];
+  };
+
+  for (const tc of toolCalls) {
+    if (CONTEXT_TOOLS.has(tc.name)) {
+      pending.push(tc);
+    } else {
+      flushPending();
+      groups.push({ type: 'single', toolCall: tc });
+    }
+  }
+  flushPending();
+  return groups;
+}
+
+function buildContextSummary(toolCalls: ToolCall[]): string {
+  const counts: Record<string, number> = {};
+  for (const tc of toolCalls) {
+    const label = CONTEXT_TOOL_LABELS[tc.name] ?? tc.name;
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([label, count]) => `${count} ${label}${count > 1 ? 's' : ''}`)
+    .join(', ');
+}
+
+const ContextToolGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }> = ({
+  toolCalls,
+  isGenerating,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const anyExecuting = toolCalls.some(
+    (tc) =>
+      isGenerating !== false &&
+      tc.duration_ms == null &&
+      (tc.isStreaming === true || (tc.isPending === true && !tc.output)),
+  );
+  const summary = buildContextSummary(toolCalls);
+  const label = anyExecuting ? 'Gathering context' : 'Gathered context';
+
+  return (
+    <div className="flat-card overflow-hidden">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 bg-muted px-3 py-2 text-left transition-colors hover:bg-accent"
+      >
+        {anyExecuting ? (
+          <span className="inline-block size-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
+        ) : (
+          <BookOpen className="size-3 flex-shrink-0 text-muted-foreground" />
+        )}
+        <span className="text-xs font-medium text-foreground">{label}:</span>
+        <span className="flex-1 truncate text-xs text-muted-foreground">{summary}</span>
+        <span className="text-xs text-muted-foreground/60">{toolCalls.length}</span>
+        {expanded ? (
+          <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
+        ) : (
+          <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
+        )}
+      </button>
+      {!!expanded && (
+        <div className="divide-y divide-border border-t border-border">
+          {toolCalls.map((tc) => (
+            <SingleToolCall key={tc.id} toolCall={tc} isGenerating={isGenerating} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Compact tool call display with expandable details.
  * Shows executing/streaming state for in-progress tool calls.
+ * Consecutive context-gathering tools are grouped into a single collapsed row.
  */
 export const ToolCallBlock = React.memo(({ toolCalls, isGenerating }: ToolCallBlockProps) => {
   if (toolCalls.length === 0) return null;
 
+  const groups = groupToolCalls(toolCalls);
+
   return (
     <div className="space-y-2">
-      {toolCalls.map((toolCall) => (
-        <SingleToolCall key={toolCall.id} toolCall={toolCall} isGenerating={isGenerating} />
-      ))}
+      {groups.map((group) =>
+        group.type === 'context-group' ? (
+          <ContextToolGroup
+            key={group.toolCalls[0].id}
+            toolCalls={group.toolCalls}
+            isGenerating={isGenerating}
+          />
+        ) : (
+          <SingleToolCall key={group.toolCall.id} toolCall={group.toolCall} isGenerating={isGenerating} />
+        ),
+      )}
     </div>
   );
 });
