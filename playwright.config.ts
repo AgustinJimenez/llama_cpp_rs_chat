@@ -32,7 +32,11 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // On CI, use pre-installed system Chrome (avoids 170MB Playwright download)
+        ...(process.env.CI ? { channel: 'chrome' } : {}),
+      },
     },
   ],
 
