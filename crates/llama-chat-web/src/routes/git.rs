@@ -193,15 +193,144 @@ pub async fn handle_git_push(req: Request<Body>) -> Result<Response<Body>, Infal
     }
 }
 
+/// POST /api/git/checkout  body: {path, hash}
+pub async fn handle_git_checkout(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let hash = body["hash"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || hash.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "path and hash required"));
+    }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["checkout", &hash]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/stash-push  body: {path}
+pub async fn handle_git_stash_push(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["stash", "push"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/stash-pop  body: {path}
+pub async fn handle_git_stash_pop(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["stash", "pop"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/create-branch  body: {path, name, hash?}
+pub async fn handle_git_create_branch(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let name = body["name"].as_str().unwrap_or("").to_string();
+    let hash = body["hash"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || name.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path and name required")); }
+    let result = tokio::task::spawn_blocking(move || {
+        if hash.is_empty() {
+            run_git_simple(&path, &["checkout", "-b", &name])
+        } else {
+            run_git_simple(&path, &["checkout", "-b", &name, &hash])
+        }
+    }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/revert  body: {path, hash}
+pub async fn handle_git_revert(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let hash = body["hash"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || hash.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path and hash required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["revert", &hash, "--no-edit"]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/reset  body: {path, mode, hash}  mode: soft|mixed|hard
+pub async fn handle_git_reset(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let mode = body["mode"].as_str().unwrap_or("mixed").to_string();
+    let hash = body["hash"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || hash.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path and hash required")); }
+    let flag = match mode.as_str() { "soft" => "--soft", "hard" => "--hard", _ => "--mixed" };
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["reset", flag, &hash]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/cherry-pick  body: {path, hash}
+pub async fn handle_git_cherry_pick(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let hash = body["hash"].as_str().unwrap_or("").to_string();
+    if path.is_empty() || hash.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path and hash required")); }
+    let result = tokio::task::spawn_blocking(move || run_git_simple(&path, &["cherry-pick", &hash]))
+        .await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
+/// POST /api/git/amend  body: {path, message?, description?}
+pub async fn handle_git_amend(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = read_json_body(req).await;
+    let path = body["path"].as_str().unwrap_or("").to_string();
+    let message = body["message"].as_str().unwrap_or("").to_string();
+    let description = body["description"].as_str().unwrap_or("").to_string();
+    if path.is_empty() { return Ok(json_error(StatusCode::BAD_REQUEST, "path required")); }
+    let result = tokio::task::spawn_blocking(move || {
+        if message.is_empty() {
+            run_git_simple(&path, &["commit", "--amend", "--no-edit"])
+        } else {
+            let full = if description.is_empty() { message.clone() } else { format!("{}\n\n{}", message, description) };
+            run_git_simple(&path, &["commit", "--amend", "-m", &full])
+        }
+    }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
+    match result {
+        Ok(out) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":true,"output":out,"error":null}).to_string())),
+        Err(e) => Ok(json_raw(StatusCode::OK, serde_json::json!({"ok":false,"output":"","error":e}).to_string())),
+    }
+}
+
 #[derive(serde::Serialize)]
 struct GitEntry {
     hash: String,
     short_hash: String,
     parents: Vec<String>,
     subject: String,
+    body: String,
     refs: Vec<String>,
     date: String,
     author: String,
+    author_email: String,
 }
 
 /// GET /api/git/log?path=<dir> — git log for the branch graph view.
@@ -246,7 +375,7 @@ fn run_git_log(path: &str) -> Result<Vec<GitEntry>, String> {
             path,
             "log",
             "--all",
-            "--format=%H|%P|%s|%D|%aI|%an",
+            "--format=%H\x1f%P\x1f%s\x1f%D\x1f%aI\x1f%an\x1f%ae\x1f%b\x1e",
             "--topo-order",
         ])
         .output()
@@ -256,8 +385,8 @@ fn run_git_log(path: &str) -> Result<Vec<GitEntry>, String> {
         return Err(if stderr.is_empty() { "not a git repository".to_string() } else { stderr });
     }
     Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter(|l| !l.is_empty())
+        .split('\x1e')
+        .filter(|r| !r.trim().is_empty())
         .filter_map(parse_entry)
         .collect())
 }
@@ -344,8 +473,13 @@ pub async fn handle_git_file_diff(req: Request<Body>) -> Result<Response<Body>, 
 }
 
 fn run_git_file_diff(path: &str, hash: &str, file: &str) -> Result<String, String> {
+    let args: Vec<&str> = match hash {
+        "WORKING" => vec!["-C", path, "diff", "HEAD", "--", file],
+        "STAGED"  => vec!["-C", path, "diff", "--cached", "HEAD", "--", file],
+        _         => vec!["-C", path, "show", hash, "--", file],
+    };
     let out = Command::new("git")
-        .args(["-C", path, "show", hash, "--", file])
+        .args(&args)
         .output()
         .map_err(|e| format!("git not available: {e}"))?;
     if !out.status.success() {
@@ -376,24 +510,21 @@ fn run_git_commit_files(path: &str, hash: &str) -> Result<Vec<FileChange>, Strin
         .collect())
 }
 
-fn parse_entry(line: &str) -> Option<GitEntry> {
-    let mut parts = line.splitn(6, '|');
+fn parse_entry(record: &str) -> Option<GitEntry> {
+    let mut parts = record.trim().splitn(8, '\x1f');
     let hash = parts.next()?.trim().to_string();
-    let parents: Vec<String> = parts
-        .next()?
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
+    let parents: Vec<String> = parts.next()?.split_whitespace().map(str::to_string).collect();
     let subject = parts.next()?.trim().to_string();
-    let refs: Vec<String> = parts
-        .next()?
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect();
+    let refs: Vec<String> = parts.next()?.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
     let date = parts.next()?.trim().to_string();
     let author = parts.next()?.trim().to_string();
+    let author_email = parts.next()?.trim().to_string();
+    let body_raw = parts.next().unwrap_or("").trim().to_string();
+    let body = body_raw.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("Co-Authored-By:") && !l.starts_with("Claude-Session:") && !l.starts_with("Signed-off-by:"))
+        .unwrap_or("")
+        .to_string();
     let short_hash: String = hash.chars().take(7).collect();
-    Some(GitEntry { hash, short_hash, parents, subject, refs, date, author })
+    Some(GitEntry { hash, short_hash, parents, subject, body, refs, date, author, author_email })
 }

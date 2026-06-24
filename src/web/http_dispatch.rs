@@ -556,6 +556,30 @@ pub async fn dispatch(
         (&Method::POST, "/api/git/push") => {
             super::routes::git::handle_git_push(req).await?
         }
+        (&Method::POST, "/api/git/checkout") => {
+            super::routes::git::handle_git_checkout(req).await?
+        }
+        (&Method::POST, "/api/git/stash-push") => {
+            super::routes::git::handle_git_stash_push(req).await?
+        }
+        (&Method::POST, "/api/git/stash-pop") => {
+            super::routes::git::handle_git_stash_pop(req).await?
+        }
+        (&Method::POST, "/api/git/create-branch") => {
+            super::routes::git::handle_git_create_branch(req).await?
+        }
+        (&Method::POST, "/api/git/revert") => {
+            super::routes::git::handle_git_revert(req).await?
+        }
+        (&Method::POST, "/api/git/reset") => {
+            super::routes::git::handle_git_reset(req).await?
+        }
+        (&Method::POST, "/api/git/cherry-pick") => {
+            super::routes::git::handle_git_cherry_pick(req).await?
+        }
+        (&Method::POST, "/api/git/amend") => {
+            super::routes::git::handle_git_amend(req).await?
+        }
 
         (&Method::POST, "/api/upload") => {
             super::routes::files::handle_post_upload(req, bridge.clone()).await?

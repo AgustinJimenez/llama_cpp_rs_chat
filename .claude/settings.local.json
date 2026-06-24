@@ -61,8 +61,30 @@
       "mcp__chrome-devtools__click",
       "mcp__chrome-devtools__type_text",
       "mcp__chrome-devtools__list_network_requests",
-      "mcp__chrome-devtools__get_network_request"
+      "mcp__chrome-devtools__get_network_request",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__evaluate_script",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Get-Process *)",
+      "mcp__chrome-devtools__list_console_messages"
     ],
     "deny": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "app-ui"
+  ],
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash E:/repo/llama_cpp_rs_chat/scripts/ci-stop-hook.sh"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -36,14 +36,56 @@ export async function gitPush(repoPath: string): Promise<{ ok: boolean; output: 
   return res.json();
 }
 
+export async function gitCheckout(repoPath: string, hash: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, hash }) });
+  return res.json();
+}
+
+export async function gitStashPush(repoPath: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/stash-push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath }) });
+  return res.json();
+}
+
+export async function gitStashPop(repoPath: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/stash-pop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath }) });
+  return res.json();
+}
+
+export async function gitCreateBranch(repoPath: string, name: string, hash?: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/create-branch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, name, hash: hash ?? '' }) });
+  return res.json();
+}
+
+export async function gitRevert(repoPath: string, hash: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, hash }) });
+  return res.json();
+}
+
+export async function gitReset(repoPath: string, mode: 'soft' | 'mixed' | 'hard', hash: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, mode, hash }) });
+  return res.json();
+}
+
+export async function gitCherryPick(repoPath: string, hash: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/cherry-pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, hash }) });
+  return res.json();
+}
+
+export async function gitAmend(repoPath: string, message: string, description: string): Promise<{ ok: boolean; output: string; error: string | null }> {
+  const res = await fetch('/api/git/amend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: repoPath, message, description }) });
+  return res.json();
+}
+
 export interface RawCommit {
   hash: string;
   short_hash: string;
   parents: string[];
   subject: string;
+  body: string;
   refs: string[];
   date: string;
   author: string;
+  author_email: string;
 }
 
 export interface AssignedCommit extends RawCommit {
