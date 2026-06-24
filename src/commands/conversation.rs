@@ -76,7 +76,7 @@ pub async fn get_conversation(
                     gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                     gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
                     compacted: false, sequence_order: Some(m.sequence_order),
-                    parts: Vec::new(),
+                    parts: Vec::new(), title: None,
                 });
                 msg_idx += 1;
             }
@@ -90,7 +90,7 @@ pub async fn get_conversation(
                 gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                 gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
                 compacted: m.compacted, sequence_order: Some(m.sequence_order),
-                parts: Vec::new(),
+                parts: Vec::new(), title: None,
             });
             msg_idx += 1;
             idx += 1;
@@ -121,7 +121,7 @@ pub async fn get_conversation(
                 prompt_tokens: None,
                 compacted: false,
                 sequence_order: None,
-                parts: Vec::new(),
+                parts: Vec::new(), title: None,
             });
             // Save recovered content as a real message and clear buffer
             if let Ok(mut logger) = web::database::conversation::ConversationLogger::from_existing(
@@ -211,7 +211,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
                     prompt_tokens: None,
                     compacted: false,
                     sequence_order: None,
-                    parts: Vec::new(),
+                    parts: Vec::new(), title: None,
                 });
                 sequence += 1;
             }
@@ -237,7 +237,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
             prompt_tokens: None,
             compacted: false,
             sequence_order: None,
-            parts: Vec::new(),
+            parts: Vec::new(), title: None,
         });
     }
 
