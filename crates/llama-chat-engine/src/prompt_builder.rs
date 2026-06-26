@@ -276,7 +276,7 @@ pub(crate) fn inject_tool_response_with_vision(
     // Create bitmaps from raw image bytes
     let bitmaps: Vec<MtmdBitmap> = exec_result.response_images.iter().enumerate().map(|(i, bytes)| {
         log_debug!(conversation_id, "Creating vision bitmap {} from {} bytes", i, bytes.len());
-        MtmdBitmap::from_buffer(mtmd_ctx, bytes)
+        MtmdBitmap::from_buffer(mtmd_ctx, bytes, false)
             .map_err(|e| format!("Failed to create image bitmap {i}: {e}"))
     }).collect::<Result<Vec<_>, String>>()?;
     let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();

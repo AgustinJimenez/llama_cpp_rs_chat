@@ -323,7 +323,7 @@ pub async fn generate_llama_response(
 
         let bitmaps: Vec<MtmdBitmap> = image_bytes_vec.iter().enumerate().map(|(i, bytes)| {
             log_debug!(&conversation_id, "Creating bitmap {} from {} bytes", i, bytes.len());
-            let bmp = MtmdBitmap::from_buffer(&vision.context, bytes)
+            let bmp = MtmdBitmap::from_buffer(&vision.context, bytes, false)
                 .map_err(|e| format!("Failed to create image bitmap {}: {e}", i))?;
             log_debug!(&conversation_id, "Bitmap {}: {}x{}", i, bmp.nx(), bmp.ny());
             Ok(bmp)

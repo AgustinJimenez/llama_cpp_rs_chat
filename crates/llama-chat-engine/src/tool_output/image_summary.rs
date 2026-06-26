@@ -37,7 +37,7 @@ pub(crate) fn run_image_vision_summary(
     let text_with_markers = format!("{markers}{prompt}");
 
     let bitmaps: Vec<MtmdBitmap> = images.iter().enumerate().map(|(i, bytes)| {
-        MtmdBitmap::from_buffer(mtmd_ctx, bytes)
+        MtmdBitmap::from_buffer(mtmd_ctx, bytes, false)
             .map_err(|e| format!("Image summary bitmap {i}: {e}"))
     }).collect::<Result<Vec<_>, _>>()?;
     let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();

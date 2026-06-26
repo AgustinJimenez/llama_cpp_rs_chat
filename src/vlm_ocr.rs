@@ -56,7 +56,7 @@ pub fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
 
     // Load image
     let img_bytes = std::fs::read(image_path)?;
-    let bitmap = MtmdBitmap::from_buffer(&vision, &img_bytes)
+    let bitmap = MtmdBitmap::from_buffer(&vision, &img_bytes, false)
         .map_err(|e| io_err(format!("Image: {e}")))?;
 
     // Build prompt with image marker — use simple OCR prompt
