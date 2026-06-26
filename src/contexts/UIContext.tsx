@@ -22,6 +22,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [isGitGraphOpen, setIsGitGraphOpen] = useState(
     () => localStorage.getItem('gitGraphOpen') === 'true',
   );
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   // eslint-disable-next-line react/hook-use-state
   const [sidebarWidth, setSidebarWidthRaw] = useState<number>(() =>
     parseInt(localStorage.getItem('sidebarWidth') || '240', 10),
@@ -76,6 +77,8 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
     setIsGitGraphOpen(false);
     localStorage.setItem('gitGraphOpen', 'false');
   }, []);
+  const toggleTerminal = useCallback(() => setIsTerminalOpen((p) => !p), []);
+  const closeTerminal = useCallback(() => setIsTerminalOpen(false), []);
 
   const value = useMemo<UIContextValue>(
     () => ({
@@ -111,6 +114,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isGitGraphOpen,
       toggleGitGraph,
       closeGitGraph,
+      isTerminalOpen,
+      toggleTerminal,
+      closeTerminal,
       sidebarWidth,
       setSidebarWidth,
     }),
@@ -147,6 +153,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isGitGraphOpen,
       toggleGitGraph,
       closeGitGraph,
+      isTerminalOpen,
+      toggleTerminal,
+      closeTerminal,
       sidebarWidth,
       setSidebarWidth,
     ],

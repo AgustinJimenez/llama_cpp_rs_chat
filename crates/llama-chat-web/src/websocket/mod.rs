@@ -43,9 +43,11 @@ pub fn make_server_continuation_message(finish_reason: &str, original_message: &
 mod chat;
 mod watch;
 mod status;
+mod terminal;
 mod title;
 
 pub use chat::handle_websocket;
 pub use watch::handle_conversation_watch;
 pub use status::handle_status_ws;
+pub use terminal::handle_terminal_ws;
 pub use title::{sanitize_title, spawn_message_title_generation, spawn_title_generation, strip_tool_tags};

@@ -92,3 +92,7 @@ pub mod approval {
 pub mod git {
     pub use llama_chat_web::routes::git::*;
 }
+#[allow(unused_imports)]
+pub mod terminal {
+    pub use llama_chat_web::routes::terminal::*;
+}

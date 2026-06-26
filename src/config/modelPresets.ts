@@ -73,6 +73,24 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     cache_type_v: 'turbo3',
     gpu_layers: 40,
   },
+  // DeepReinforce Ornith 1.0 35B (qwen35moe arch — same ngl=40 limit as Qwen3.5-35B)
+  // Source: https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
+  // GGUF embeds temp=1.0 (benchmark), model card recommends 0.6 for generation.
+  // Q4_K_M weights = 21.2 GB; cap ctx at 32K to stay within 24 GB VRAM.
+  'Ornith 1.0 35B': {
+    sampler_type: 'Temperature',
+    temperature: 0.6,
+    top_p: 0.95,
+    top_k: 20,
+    min_p: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    flash_attention: true,
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
+    gpu_layers: 40,
+  },
+
   // Qwen3.6-35B-A3B (same qwen35moe arch as 3.5, with vision + MTP)
   'Qwen3.6-35B-A3B': {
     sampler_type: 'Temperature',

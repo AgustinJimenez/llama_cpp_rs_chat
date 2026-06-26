@@ -37,6 +37,10 @@ export interface UIContextValue {
   isGitGraphOpen: boolean;
   toggleGitGraph: () => void;
   closeGitGraph: () => void;
+  /** Terminal view */
+  isTerminalOpen: boolean;
+  toggleTerminal: () => void;
+  closeTerminal: () => void;
   sidebarWidth: number;
   setSidebarWidth: (w: number) => void;
 }

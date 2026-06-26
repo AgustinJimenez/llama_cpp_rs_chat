@@ -87,8 +87,13 @@ export const DownloadProvider = ({ children }: { children: ReactNode }) => {
       // progress events make the bar jump back and forth.
       if (abortControllers.current.has(key)) return;
 
-      // DON'T delete from pendingDownloads yet — wait for first progress event
-      // so the item stays visible in the UI during the connection gap
+      // Optimistically mark as in-progress immediately so the button reacts
+      // before the first real SSE event arrives (typically 2-3 s of latency).
+      setDownloads((prev) => {
+        const next = new Map(prev);
+        next.set(key, { type: 'progress', bytes: 0, total: file.size > 0 ? file.size : undefined });
+        return next;
+      });
 
       const controller = startHubDownload(modelId, file.name, destPath, (event) => {
         setDownloads((prev) => {

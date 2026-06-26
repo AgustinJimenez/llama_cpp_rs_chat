@@ -23,3 +23,4 @@ pub mod openai_compat_server;
 pub mod approval;
 pub mod remote;
 pub mod git;
+pub mod terminal;

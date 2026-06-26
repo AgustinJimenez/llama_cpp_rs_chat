@@ -168,6 +168,10 @@ pub async fn dispatch(
             super::routes::status::handle_status_websocket(req, bridge.clone()).await?
         }
 
+        (&Method::GET, "/ws/terminal") => {
+            super::routes::terminal::handle_terminal_websocket(req).await?
+        }
+
         // Configuration endpoints
         (&Method::GET, "/api/config") => {
             super::routes::config::handle_get_config(bridge.clone(), db.clone()).await?

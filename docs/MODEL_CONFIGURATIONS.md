@@ -30,8 +30,9 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | 16 | Devstral-Small-2507 | llama | 24B | Q4_K_M | 14.33 GB | ✓ |
 | 17 | Qwen3.5-35B-A3B | qwen35moe | 35B-A3B | Q4_K_M | 19.70 GB | ✓ |
 | 18 | GLM-4.6V-Flash | glm4 | 9B | Q8_0 | ~9 GB | ✓ |
+| 19 | Ornith-1.0-35B | qwen35moe | 35B-A3B | Q4_K_M | 21.2 GB | ✓ |
 
-*Last updated: 2026-02-27*
+*Last updated: 2026-06-25*
 
 ---
 
@@ -1027,3 +1028,62 @@ Community reports: 122 tok/s on 4090, 100 tok/s on 3090 with same settings.
 ### Sources
 - https://huggingface.co/Qwen/Qwen3.5-35B-A3B
 - https://github.com/QwenLM/Qwen3.5
+
+---
+
+## Ornith-1.0-35B (DeepReinforce)
+
+**File:** `E:\ai_models\ornith-1.0-35b-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | DeepReinforce AI |
+| Architecture | qwen35moe (same as Qwen3.5-35B-A3B) |
+| Total Parameters | 35B |
+| Active Parameters | ~3B (MoE) |
+| Quantization | Q4_K_M |
+| File Size | 21.2 GB |
+| Context Window | 262,144 tokens (256K) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+| Thinking Mode | Yes (`<think>...</think>`, same as Qwen3) |
+| Tool Format | Qwen native (`<tool_call>`/`</tool_call>`) |
+| `general.name` | `Ornith 1.0 35B` |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| top_k | 20 |
+| top_p | 0.95 |
+| temperature | 1.0 (benchmark default — override to 0.6 for generation) |
+
+### Recommended Sampling Parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | **0.6** | Model card recommendation for generation (1.0 is benchmark-only) |
+| top_p | 0.95 | Official recommendation |
+| top_k | 20 | Official recommendation |
+| min_p | 0.0 | |
+| repetition_penalty | 1.0 | |
+| context_size | 32,768 | VRAM-limited on 24 GB GPU (21.2 GB model) |
+
+### Critical Performance Settings
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `gpu_layers` | **40** | qwen35moe arch has 40 layers — ngl=99 causes hangs (same as Qwen3.5-35B-A3B) |
+| `flash_attention` | true | Required for full throughput |
+| `cache_type_k` | `turbo2` | TurboQuant KV cache — reduces VRAM, no quality loss |
+| `cache_type_v` | `turbo3` | Same as above |
+
+### Notes
+- Uses the **same qwen35moe architecture** as Qwen3.5-35B-A3B — identical constraints apply (`gpu_layers=40` mandatory, flash attention required).
+- Reasoning model: outputs `<think>...</think>` blocks before the final answer.
+- Trained with RL for **agentic coding** (Terminal-Bench 2.1: 64.2, SWE-Bench Verified: 75.6).
+- Outperforms Qwen3.5-35B, Qwen3.6-35B, and Gemma4-31B at the same parameter class.
+- VRAM budget: 21.2 GB weights + ~400 MB KV cache (turbo, 32K ctx) + compute ≈ 22 GB. Fits on RTX 4090.
+
+### Sources
+- https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
+- https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-GGUF

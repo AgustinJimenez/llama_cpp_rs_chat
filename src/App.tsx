@@ -11,6 +11,7 @@ import { ConversationLog } from './components/organisms/ConversationLog';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
 import { GitGraphView } from './components/organisms/GitGraphView';
 import { ProviderSelector } from './components/organisms/ProviderSelector';
+import { TerminalView } from './components/organisms/TerminalView';
 import { MessagesArea } from './components/templates';
 import { useAgentContext } from './contexts/AgentContext';
 import { useChatContext } from './contexts/ChatContext';
@@ -269,6 +270,7 @@ const MainContent = ({
     toggleMobileSidebar,
     isBrowserViewOpen,
     isGitGraphOpen,
+    isTerminalOpen,
     sidebarWidth,
   } = useUIContext();
 
@@ -312,6 +314,7 @@ const MainContent = ({
 
   const browserViewClass = isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
   const gitGraphClass = isGitGraphOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
+  const terminalClass = isTerminalOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
   const providerReady = isProviderReady(
     modelStatus.loaded,
     activeProvider,
@@ -370,7 +373,11 @@ const MainContent = ({
         <div className={gitGraphClass}>
           <GitGraphView />
         </div>
-        {!isBrowserViewOpen && !isGitGraphOpen && messages.length === 0 && (
+        {/* TerminalView — hidden via CSS, always mounted to preserve PTY sessions */}
+        <div className={terminalClass}>
+          <TerminalView />
+        </div>
+        {!isBrowserViewOpen && !isGitGraphOpen && !isTerminalOpen && messages.length === 0 && (
           <WelcomeMessage>
             {!!providerReady && (
               <div className="w-full max-w-2xl space-y-1 px-3 md:px-6">
@@ -388,7 +395,7 @@ const MainContent = ({
             )}
           </WelcomeMessage>
         )}
-        {!isBrowserViewOpen && !isGitGraphOpen && messages.length > 0 && (
+        {!isBrowserViewOpen && !isGitGraphOpen && !isTerminalOpen && messages.length > 0 && (
           <>
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <MessageNav messages={messages} />

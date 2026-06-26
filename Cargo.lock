@@ -4052,6 +4052,7 @@ dependencies = [
  "llama-chat-worker",
  "log",
  "mdns-sd",
+ "portable-pty",
  "regex",
  "rfd 0.15.4",
  "rusqlite",

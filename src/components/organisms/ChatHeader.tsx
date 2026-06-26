@@ -11,6 +11,7 @@ import {
   Loader2,
   PowerOff,
   GitBranch,
+  SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -360,6 +361,8 @@ export const ChatHeader = React.memo(
       browserViewUrl,
       isGitGraphOpen,
       toggleGitGraph,
+      isTerminalOpen,
+      toggleTerminal,
     } = useUIContext();
 
     // When user clicks MD/TXT/RAW, close browser view to show the chat
@@ -413,6 +416,15 @@ export const ChatHeader = React.memo(
             aria-label="Toggle git graph"
           >
             <GitBranch className="size-3.5" />
+          </button>
+
+          <button
+            onClick={toggleTerminal}
+            className={`btn-icon ${isTerminalOpen ? 'active' : ''}`}
+            title="Toggle terminal"
+            aria-label="Toggle terminal"
+          >
+            <SquareTerminal className="size-3.5" />
           </button>
 
           {!!modelLoaded && (

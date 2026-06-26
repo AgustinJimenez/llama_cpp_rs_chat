@@ -69,6 +69,9 @@ mdns-sd = "0.13"
 igd-next = { version = "0.17", features = ["aio_tokio"] }
 stunclient = "0.1"
 
+# Terminal PTY support
+portable-pty = "0.8"
+
 [features]
 default = []
 mock = []

@@ -458,18 +458,18 @@ const DownloadRow = ({
         )}
       </div>
 
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-3">
         {(() => {
           if (isCompleted) {
             return (
               <button
                 type="button"
                 onClick={() => onLoad(record)}
-                className="text-muted-foreground hover:text-foreground"
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                 title={t('hubExplorer.loadModel')}
                 aria-label={t('hubExplorer.loadModel')}
               >
-                <Play className="size-4" />
+                <Play className="size-5" />
               </button>
             );
           }
@@ -478,11 +478,11 @@ const DownloadRow = ({
               <button
                 type="button"
                 onClick={() => onPause(`${record.model_id}/${record.filename}`)}
-                className="text-muted-foreground hover:text-yellow-500"
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-yellow-500"
                 title={t('hubExplorer.pauseDownload')}
                 aria-label={t('hubExplorer.pauseDownload')}
               >
-                <Pause className="size-4" />
+                <Pause className="size-5" />
               </button>
             );
           }
@@ -490,22 +490,22 @@ const DownloadRow = ({
             <button
               type="button"
               onClick={() => onResume(record)}
-              className="text-muted-foreground hover:text-foreground"
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               title={t('hubExplorer.resumeDownload')}
               aria-label={t('hubExplorer.ariaResume')}
             >
-              <ArrowDownToLine className="size-4" />
+              <ArrowDownToLine className="size-5" />
             </button>
           );
         })()}
         <button
           type="button"
           onClick={() => onCancel(`${record.model_id}/${record.filename}`)}
-          className="text-muted-foreground hover:text-destructive"
+          className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
           title={t('hubExplorer.cancelDelete')}
           aria-label={t('hubExplorer.cancelDeleteAria')}
         >
-          <X className="size-4" />
+          <X className="size-5" />
         </button>
       </div>
     </div>
