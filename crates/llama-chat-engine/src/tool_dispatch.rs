@@ -395,7 +395,15 @@ pub(crate) fn execute_single_tool(
                     };
                     cmd_with_dir_buf.as_str()
                 } else { cmd };
-                let rtk_cmd = rtk_prefix_for_tool(cmd);
+                // use_rtk: explicit bool overrides auto-detect; absent = auto-detect by command name
+                let use_rtk_arg = args.get("use_rtk").and_then(|v| {
+                    v.as_bool().or_else(|| v.as_str().map(|s| matches!(s.trim().to_lowercase().as_str(), "true" | "1" | "yes")))
+                });
+                let rtk_cmd = match use_rtk_arg {
+                    Some(true) => llama_chat_command::rtk_prefix(cmd),
+                    Some(false) => cmd.to_string(),
+                    None => rtk_prefix_for_tool(cmd),
+                };
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
