@@ -86,6 +86,31 @@ pub static AGENT_TOOLS: &[ToolDef] = &[
 /// Complex agent tools that require runtime JSON construction.
 pub fn complex_agent_tools() -> Vec<Value> {
     vec![
+        // ─── parallel_execute — has array param ───
+        json!({
+            "name": "parallel_execute",
+            "description": "Execute multiple independent tool calls in parallel and receive all results at once. Use when you have several operations that don't depend on each other's results (e.g. writing multiple files, reading multiple files, fetching multiple URLs). Results are returned together once all complete. Do NOT include execute_command, spawn_agent, or nested parallel_execute calls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "calls": {
+                        "type": "array",
+                        "description": "Tool calls to run in parallel. Each item must have 'tool' (tool name string) and 'args' (object with tool arguments).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool": { "type": "string", "description": "Name of the tool to call" },
+                                "args": { "type": "object", "description": "Arguments for the tool" }
+                            },
+                            "required": ["tool", "args"]
+                        },
+                        "minItems": 2,
+                        "maxItems": 10
+                    }
+                },
+                "required": ["calls"]
+            }
+        }),
         // ─── add_mcp_server — has array and object params ───
         json!({
             "name": "add_mcp_server",

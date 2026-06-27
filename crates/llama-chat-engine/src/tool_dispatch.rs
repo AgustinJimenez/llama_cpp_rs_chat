@@ -224,6 +224,78 @@ pub(crate) fn execute_single_tool(
     chat_template_string: Option<&str>,
     tags: &ToolTags,
 ) -> (String, Vec<Vec<u8>>, u64) {
+    // parallel_execute: run multiple independent tool calls concurrently
+    if name == "parallel_execute" {
+        const BLOCKED_IN_PARALLEL: &[&str] = &["execute_command", "spawn_agent", "parallel_execute"];
+        const MAX_PARALLEL_CALLS: usize = 10;
+
+        let calls = match args.get("calls").and_then(|v| v.as_array()) {
+            Some(c) if !c.is_empty() => c.clone(),
+            _ => return ("Error: 'calls' must be a non-empty array".to_string(), Vec::new(), 0),
+        };
+
+        if calls.len() > MAX_PARALLEL_CALLS {
+            return (format!("Error: parallel_execute supports at most {MAX_PARALLEL_CALLS} calls, got {}", calls.len()), Vec::new(), 0);
+        }
+
+        // Validate and build (tool_name, flattened_json) pairs before spawning anything
+        let mut parsed: Vec<(String, String)> = Vec::new();
+        for (i, call) in calls.iter().enumerate() {
+            let tool_name = match call.get("tool").and_then(|v| v.as_str()) {
+                Some(n) => n.to_string(),
+                None => return (format!("Error: calls[{i}] missing 'tool' field"), Vec::new(), 0),
+            };
+            if BLOCKED_IN_PARALLEL.contains(&tool_name.as_str()) {
+                return (format!("Error: '{tool_name}' is not allowed inside parallel_execute"), Vec::new(), 0);
+            }
+            let call_args = call.get("args").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+            // Flatten: {"name": tool_name, ...args} — the format dispatch_native_tool expects
+            let mut obj = serde_json::Map::new();
+            obj.insert("name".to_string(), serde_json::Value::String(tool_name.clone()));
+            if let Some(args_obj) = call_args.as_object() {
+                for (k, v) in args_obj {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+            parsed.push((tool_name, serde_json::Value::Object(obj).to_string()));
+        }
+
+        let t = Instant::now();
+        log_info!(conversation_id, "⚡ parallel_execute: {} calls", parsed.len());
+
+        // Spawn all in parallel threads — each run_native_tool_with_timeout is self-contained
+        let handles: Vec<(String, std::thread::JoinHandle<Option<llama_chat_tools::NativeToolResult>>)> =
+            parsed.into_iter().map(|(tool_name, json_str)| {
+                let conv_id = conversation_id.to_string();
+                let bb = browser_backend.clone();
+                let mcp = mcp_manager.clone();
+                let db = db.clone();
+                let handle = std::thread::spawn(move || {
+                    run_native_tool_with_timeout(&json_str, &conv_id, use_htmd, bb, mcp, db)
+                });
+                (tool_name, handle)
+            }).collect();
+
+        let mut parts: Vec<String> = Vec::new();
+        let mut all_images: Vec<Vec<u8>> = Vec::new();
+        for (i, (tool_name, handle)) in handles.into_iter().enumerate() {
+            match handle.join().unwrap_or(None) {
+                Some(r) => {
+                    parts.push(format!("--- {}: {} ---\n{}", i + 1, tool_name, r.text.trim()));
+                    all_images.extend(r.images);
+                }
+                None => {
+                    parts.push(format!("--- {}: {} ---\nError: tool failed or timed out", i + 1, tool_name));
+                }
+            }
+        }
+
+        let combined = parts.join("\n\n");
+        let duration_ms = t.elapsed().as_millis() as u64;
+        log_info!(conversation_id, "⚡ parallel_execute done in {}ms", duration_ms);
+        return (combined, all_images, duration_ms);
+    }
+
     // spawn_agent: run a sub-agent with fresh context
     if name == "spawn_agent" {
         let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
