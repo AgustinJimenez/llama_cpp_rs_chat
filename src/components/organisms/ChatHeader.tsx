@@ -395,11 +395,9 @@ export const ChatHeader = React.memo(
 
         {/* Right: browser (always) + view toggle + monitor (when loaded) */}
         <div className="flex items-center gap-1.5 md:gap-3">
-          {!!modelLoaded && (
-            <div className="hidden md:block">
-              <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
-            </div>
-          )}
+          <div className="hidden md:block">
+            <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
+          </div>
 
           <button
             onClick={toggleBrowserView}

@@ -73,6 +73,22 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     cache_type_v: 'turbo3',
     gpu_layers: 40,
   },
+  // Qwen3.6-35B-A3B IQ4_XS — same qwen35moe arch, gpu_layers=40 limit.
+  // Native ctx 262K but KV cache at that size stalls on 24GB VRAM with IQ4_XS weights (~21GB).
+  // Cap at 32K for agent use. Increase to 65536 if you need more headroom.
+  'Qwen3.6-35B-A3B': {
+    sampler_type: 'Temperature',
+    temperature: 0.6,
+    top_p: 0.95,
+    top_k: 20,
+    min_p: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    flash_attention: true,
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
+    gpu_layers: 40,
+  },
   // DeepReinforce Ornith 1.0 35B (qwen35moe arch — same ngl=40 limit as Qwen3.5-35B)
   // Source: https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
   // GGUF embeds temp=1.0 (benchmark), model card recommends 0.6 for generation.
@@ -91,21 +107,6 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     gpu_layers: 40,
   },
 
-  // Qwen3.6-35B-A3B (same qwen35moe arch as 3.5, with vision + MTP)
-  'Qwen3.6-35B-A3B': {
-    sampler_type: 'Temperature',
-    temperature: 0.7,
-    top_p: 0.8,
-    top_k: 20,
-    min_p: 0.0,
-    presence_penalty: 1.5,
-    repeat_penalty: 1.0,
-    context_size: 32768,
-    flash_attention: true,
-    cache_type_k: 'turbo2',
-    cache_type_v: 'turbo3',
-    gpu_layers: 40,
-  },
   // Carnice-V2-27B (Qwen3.6-27B dense finetune, Hermes-style agent, Q4_K_M)
   // Thinking mode: temp=1.0, top_p=0.95, presence_penalty=0.0 (dense, NOT MoE)
   'Carnice-V2-27B': {

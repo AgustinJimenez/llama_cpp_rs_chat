@@ -67,7 +67,8 @@
       "PowerShell(Get-NetTCPConnection *)",
       "PowerShell(Stop-Process *)",
       "PowerShell(Get-Process *)",
-      "mcp__chrome-devtools__list_console_messages"
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__new_page"
     ],
     "deny": []
   },

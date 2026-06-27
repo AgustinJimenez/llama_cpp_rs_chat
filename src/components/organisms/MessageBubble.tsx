@@ -5,11 +5,20 @@ import { useTranslation } from 'react-i18next';
 import { useModelContext } from '../../contexts/ModelContext';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
+import { usePacedContent } from '../../hooks/usePacedContent';
 import type { Message, ToolCall } from '../../types';
 import { LoadingIndicator } from '../atoms';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { CompactionSummary, ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 import { StreamingText } from '../molecules/messages/StreamingText';
+
+const PacedMarkdownContent: React.FC<{ content: string; isStreaming?: boolean }> = ({
+  content,
+  isStreaming,
+}) => {
+  const paced = usePacedContent(content, isStreaming ?? false);
+  return <MarkdownContent content={paced} testId="message-content" />;
+};
 
 const MIN_VALID_TIMESTAMP_MS = 1_000_000_000_000;
 
@@ -374,7 +383,7 @@ const AssistantMessage: React.FC<{
     const segStreaming = isLastTextSeg ? isStreaming : undefined;
     if (viewMode === 'markdown') {
       // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
-      return <div key={`seg-txt-${index}`}><MarkdownContent content={text} testId="message-content" /></div>;
+      return <div key={`seg-txt-${index}`}><PacedMarkdownContent content={text} isStreaming={segStreaming} /></div>;
     }
     // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- positional segments
     return <div key={`seg-txt-${index}`}><StreamingText content={text} isStreaming={segStreaming} /></div>;

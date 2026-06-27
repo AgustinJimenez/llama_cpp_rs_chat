@@ -31,8 +31,9 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | 17 | Qwen3.5-35B-A3B | qwen35moe | 35B-A3B | Q4_K_M | 19.70 GB | ✓ |
 | 18 | GLM-4.6V-Flash | glm4 | 9B | Q8_0 | ~9 GB | ✓ |
 | 19 | Ornith-1.0-35B | qwen35moe | 35B-A3B | Q4_K_M | 21.2 GB | ✓ |
+| 20 | Qwen3.6-35B-A3B | qwen35moe | 35B-A3B | IQ4_XS | ~21 GB | ✓ |
 
-*Last updated: 2026-06-25*
+*Last updated: 2026-06-26*
 
 ---
 
@@ -1087,3 +1088,40 @@ Community reports: 122 tok/s on 4090, 100 tok/s on 3090 with same settings.
 ### Sources
 - https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
 - https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-GGUF
+
+---
+
+## Qwen3.6-35B-A3B (Alibaba)
+
+**File:** `E:\ai_models\Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`
+**GGUF general.name:** `Qwen3.6-35B-A3B`
+
+| Property | Value |
+|----------|-------|
+| Creator | Alibaba / Qwen Team |
+| Architecture | qwen35moe (MoE, 3B active params) |
+| Total Parameters | 35B |
+| Quantization | IQ4_XS (~21 GB) |
+| Context Window (native) | 262,144 tokens (262K) |
+| Context Window (recommended) | 32,768 tokens (32K) — see VRAM note |
+
+### Recommended Parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `temperature` | 0.6 | Qwen3 recommended for generation |
+| `top_p` | 0.95 | |
+| `top_k` | 20 | |
+| `context_size` | **32768** | **Cap at 32K** — 262K fills 24GB VRAM with IQ4_XS weights |
+| `gpu_layers` | **40** | qwen35moe hard limit — ngl=99 hangs |
+| `flash_attention` | true | Required |
+| `cache_type_k` | `turbo2` | TurboQuant |
+| `cache_type_v` | `turbo3` | TurboQuant |
+
+### Notes
+- Same qwen35moe architecture as Qwen3.5-35B-A3B and Ornith 1.0 35B — `gpu_layers=40` is mandatory.
+- Native 262K context stalls on 24GB VRAM when combined with IQ4_XS (~21 GB) weights. Cap at 32K.
+- Reasoning model: outputs `<think>...</think>` blocks.
+
+### Sources
+- https://huggingface.co/Qwen/Qwen3.6-35B-A3B

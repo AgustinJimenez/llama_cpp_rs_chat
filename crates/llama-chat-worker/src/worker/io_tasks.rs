@@ -492,13 +492,21 @@ pub async fn stdout_reader_task(
                                             if let Ok(json) = serde_json::to_string(&gen_req) {
                                                 // Register a pending request so the stdout reader
                                                 // can match the response when generation completes
-                                                let (gen_tx, _gen_rx) =
+                                                let (gen_tx, gen_rx) =
                                                     oneshot::channel::<WorkerPayload>();
                                                 p.lock()
                                                     .await
                                                     .insert(gen_id, PendingRequest { tx: gen_tx });
                                                 let _ = ct.lock().await.send(json);
                                                 eprintln!("[BRIDGE] Auto-continue command sent");
+                                                // Clear active_generation when the auto-continued
+                                                // generation finishes (avoids stuck generating: true)
+                                                let ag3 = ag.clone();
+                                                tokio::task::spawn_local(async move {
+                                                    let _ = gen_rx.await;
+                                                    ag3.lock().await.take();
+                                                    eprintln!("[BRIDGE] Auto-continue generation cleared");
+                                                });
                                             }
                                         }
                                     }

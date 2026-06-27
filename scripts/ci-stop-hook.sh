@@ -4,6 +4,13 @@
 
 cd "$(dirname "$0")/.."
 
+# If the hook is already active (re-entrant call while Claude fixes errors),
+# exit immediately to avoid an infinite block loop.
+INPUT=$(cat)
+if echo "$INPUT" | grep -q '"stop_hook_active":true'; then
+  exit 0
+fi
+
 ERRORS=""
 
 # TypeScript
@@ -25,6 +32,7 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ -n "$ERRORS" ]; then
-  printf "CI checks failed — please fix before finishing:\n${ERRORS}"
+  printf 'CI checks failed - please fix before finishing:\n'
+  printf '%b' "${ERRORS}"
   exit 2
 fi
