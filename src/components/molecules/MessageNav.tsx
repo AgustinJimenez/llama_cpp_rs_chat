@@ -100,7 +100,7 @@ export const MessageNav: React.FC<MessageNavProps> = ({ messages }) => {
     window.dispatchEvent(new CustomEvent('scroll-to-message', { detail: { index } }));
   }, []);
 
-  if (entries.length < 2) return null;
+  if (entries.length < 1) return null;
 
   return (
     <nav
