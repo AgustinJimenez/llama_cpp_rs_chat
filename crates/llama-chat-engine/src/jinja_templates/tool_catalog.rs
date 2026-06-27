@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 /// Core tool names always included in the system prompt.
 pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
+    "parallel_execute",
     "read_file", "write_file", "edit_file", "undo_edit", "insert_text",
     "search_files", "find_files", "lsp_query", "execute_python", "execute_command",
     "list_directory",
@@ -104,14 +105,12 @@ pub fn get_all_tools() -> Vec<Value> {
 }
 
 /// Get available tools for the template context — core tools + catalog tools only.
+/// Tools are returned in CORE_TOOL_NAMES order so parallel_execute appears first.
 pub fn get_available_tools() -> Vec<Value> {
-    let mut tools: Vec<Value> = get_all_tools()
-        .into_iter()
-        .filter(|tool| {
-            tool.get("name")
-                .and_then(|n| n.as_str())
-                .is_some_and(|name| CORE_TOOL_NAMES.contains(&name))
-        })
+    let all = get_all_tools();
+    let mut tools: Vec<Value> = CORE_TOOL_NAMES
+        .iter()
+        .filter_map(|&name| all.iter().find(|t| t.get("name").and_then(|n| n.as_str()) == Some(name)).cloned())
         .collect();
 
     tools.push(json!({

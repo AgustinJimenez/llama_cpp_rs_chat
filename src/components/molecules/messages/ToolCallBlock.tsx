@@ -433,12 +433,6 @@ const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = 
             {removeCount > 0 && <span style={{ color: '#f85149' }}>-{removeCount}</span>}
           </span>
         )}
-        <span
-          className="flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide"
-          style={{ color: op.color, background: op.bg }}
-        >
-          {op.label}
-        </span>
       </div>
       {/* Diff lines */}
       {diffLines}

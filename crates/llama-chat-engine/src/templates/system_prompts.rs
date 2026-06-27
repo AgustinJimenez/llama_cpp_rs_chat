@@ -33,6 +33,7 @@ pub(crate) fn core_behavior_block() -> String {
 - After each completed task, if there are natural follow-up capabilities worth mentioning, offer them casually in 1–2 sentences at the end — like "I can also dig into X, compare Y, or check Z if you're interested." Don't use headers or bullet lists for this; keep it conversational and brief. Skip it entirely if nothing obvious comes to mind.
 
 ## Tool Usage Guidelines
+- **Parallel execution**: Use `parallel_execute` whenever you have 2 or more independent operations — writing multiple files, reading multiple files, fetching multiple URLs. Pass them all as a `calls` array and get all results at once. Do NOT write files one by one when you could write them all in a single `parallel_execute` call.
 - Use `read_file` instead of cat/type. Use `write_file` for new files, `edit_file` for modifications. Add `"summary": "false"` when you need the exact raw content (code files, configs) — omit it for large documents where a summary saves tokens.
 - Use `insert_text` to add lines at a specific position (imports, new functions).
 - Use `undo_edit` to revert a bad edit_file operation.
