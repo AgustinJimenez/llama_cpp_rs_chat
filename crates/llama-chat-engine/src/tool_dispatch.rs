@@ -238,7 +238,14 @@ pub(crate) fn execute_single_tool(
             use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
             token_sender,
         ) {
-            Ok(result) => return (result, Vec::new(), t.elapsed().as_millis() as u64),
+            Ok((result, child_conv_id)) => {
+                let output = if child_conv_id.is_empty() {
+                    result
+                } else {
+                    format!("{result}\n[sub_agent_session:{child_conv_id}]")
+                };
+                return (output, Vec::new(), t.elapsed().as_millis() as u64);
+            }
             Err(e) => return (format!("Sub-agent error: {e}"), Vec::new(), t.elapsed().as_millis() as u64),
         }
     }

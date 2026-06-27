@@ -232,6 +232,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     [onLoadConversation, closeMobileSidebar],
   );
 
+  // Allow tool cards (sub-agent links) to trigger conversation loads via event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id) handleLoadConversation(id);
+    };
+    window.addEventListener('load-conversation', handler);
+    return () => window.removeEventListener('load-conversation', handler);
+  }, [handleLoadConversation]);
+
   const rotateCcwClass = loading ? 'animate-spin' : '';
   const isBulkDelete = conversationToDelete?.name === '__bulk_delete__';
   const deleteDialogTitle = isBulkDelete

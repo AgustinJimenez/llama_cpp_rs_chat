@@ -35,6 +35,7 @@ export function processConversationMessages(
     role: String(msg.role ?? '') as Message['role'],
     content: String(msg.content ?? ''),
     timestamp: Number(msg.timestamp ?? 0),
+    ...(msg.title != null ? { title: String(msg.title) } : {}),
   }));
 
   return mapped.filter((msg) => {

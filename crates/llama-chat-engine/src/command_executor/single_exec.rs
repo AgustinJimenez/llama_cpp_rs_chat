@@ -54,7 +54,13 @@ pub(crate) fn execute_single_call(
                 use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
                 token_sender,
             ) {
-                Ok(result) => result,
+                Ok((result, child_conv_id)) => {
+                    if child_conv_id.is_empty() {
+                        result
+                    } else {
+                        format!("{result}\n[sub_agent_session:{child_conv_id}]")
+                    }
+                }
                 Err(e) => format!("Sub-agent error: {e}"),
             }
         }

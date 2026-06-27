@@ -220,6 +220,27 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                 window.dispatchEvent(new CustomEvent('conversation-title-updated'));
               }, TITLE_REFRESH_RETRY_MS);
 
+              // Patch per-message titles after background title gen completes (~800ms delay + gen time)
+              const titleConvId = conversationId || currentConversationIdRef.current;
+              if (titleConvId) {
+                setTimeout(() => {
+                  getConversation(titleConvId)
+                    .then((data) => {
+                      if (!data.messages) return;
+                      const raw = data.messages as Array<Record<string, unknown>>;
+                      setMessages((prev) =>
+                        prev.map((msg) => {
+                          const dbMsg = raw.find((m) => String(m.id) === msg.id);
+                          if (!dbMsg || dbMsg.title == null) return msg;
+                          const title = String(dbMsg.title);
+                          return msg.title === title ? msg : { ...msg, title };
+                        }),
+                      );
+                    })
+                    .catch(() => {});
+                }, TITLE_REFRESH_DELAY_MS);
+              }
+
               if (tokensUsed !== undefined) setTokensUsed(tokensUsed);
               if (maxTokens !== undefined) setMaxTokens(maxTokens);
               if (timings) {

@@ -252,3 +252,23 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Message nav scrollbar: hidden until hover or active scroll */
+nav[aria-label="Message sections"]::-webkit-scrollbar {
+  width: 4px;
+}
+nav[aria-label="Message sections"] {
+  width: 240px;
+}
+nav[aria-label="Message sections"]::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+nav[aria-label="Message sections"]:hover::-webkit-scrollbar-thumb,
+nav[aria-label="Message sections"].is-scrolling::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
+nav[aria-label="Message sections"]::-webkit-scrollbar-track {
+  background: transparent;
+}

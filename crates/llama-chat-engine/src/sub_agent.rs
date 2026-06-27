@@ -39,7 +39,7 @@ pub fn run_sub_agent(
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
     db: llama_chat_db::SharedDatabase,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     use super::templates::get_behavioral_system_prompt;
     use std::sync::atomic::Ordering;
 
@@ -61,6 +61,14 @@ pub fn run_sub_agent(
 
     log_info!(conversation_id, "🤖 Spawning sub-agent for task: {}", &task[..task.len().min(200)]);
 
+    // Create a child conversation to store this sub-agent's trace.
+    let child_conv_id = db.create_conversation().unwrap_or_default();
+    if !child_conv_id.is_empty() {
+        let short_task: String = task.chars().take(60).collect();
+        let title = format!("Sub-agent: {short_task}");
+        let _ = db.update_conversation_title(&child_conv_id, &title);
+    }
+
     // Stream a status message to the frontend
     if let Some(ref sender) = token_sender {
         let _ = sender.send(TokenData {
@@ -81,6 +89,12 @@ pub fn run_sub_agent(
     } else {
         task.to_string()
     };
+
+    // Persist the user task to the child conversation.
+    if !child_conv_id.is_empty() {
+        let now = llama_chat_db::current_timestamp_millis() as u64;
+        let _ = db.insert_message(&child_conv_id, "user", &user_message, now, 0);
+    }
 
     // Format the prompt using the chat template
     let system_prompt = get_behavioral_system_prompt();
@@ -263,7 +277,13 @@ pub fn run_sub_agent(
         full_response.len()
     );
 
-    Ok(compact_result)
+    // Persist the full assistant trace (tool calls + results + final answer) to the child conversation.
+    if !child_conv_id.is_empty() {
+        let now = llama_chat_db::current_timestamp_millis() as u64;
+        let _ = db.insert_message(&child_conv_id, "assistant", &full_response, now, 1);
+    }
+
+    Ok((compact_result, child_conv_id))
 }
 
 /// Extract the final human-readable answer from a sub-agent response.

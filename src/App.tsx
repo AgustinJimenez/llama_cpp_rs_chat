@@ -397,7 +397,7 @@ const MainContent = ({
         )}
         {!isBrowserViewOpen && !isGitGraphOpen && !isTerminalOpen && messages.length > 0 && (
           <>
-            <div className="flex flex-1 min-h-0 overflow-hidden">
+            <div className="relative flex flex-1 min-h-0 overflow-hidden">
               <MessageNav messages={messages} />
               <MessagesArea />
             </div>

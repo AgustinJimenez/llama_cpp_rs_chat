@@ -479,7 +479,8 @@
   "toolCallBlock": {
     "output": "Output",
     "abort": "Abort",
-    "abortDesktop": "Abort desktop automation"
+    "abortDesktop": "Abort desktop automation",
+    "viewSubAgentSession": "View sub-agent session"
   },
   "conversationLog": {
     "title": "Event Log"

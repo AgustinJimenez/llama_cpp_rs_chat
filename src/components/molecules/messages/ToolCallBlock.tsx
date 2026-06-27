@@ -10,8 +10,9 @@ const SCROLL_BOTTOM_THRESHOLD_PX = 30;
 const SYNTAX_HIGHLIGHT_MAX_LENGTH = 50000;
 
 import type { ToolCall } from '../../../types';
-import { detectLanguageFromPath } from '../../../utils/languageDetect';
 import { SyntaxHighlighter, dracula } from '../../../utils/syntaxHighlighterSetup';
+
+import { getToolDef, getToolSummary } from './toolRegistry';
 
 /** Desktop automation tool names that can be aborted via /api/desktop/abort. */
 const DESKTOP_TOOLS = new Set([
@@ -64,77 +65,11 @@ interface ToolCallBlockProps {
   isGenerating?: boolean;
 }
 
-/**
- * Get a brief one-line summary for a tool call based on its name and arguments.
- */
-const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string> = {
-  read_file: (args) => String(args.path || ''),
-  write_file: (args) => {
-    const content = String(args.content || '');
-    return `${args.path} (${content.length} chars)`;
-  },
-  edit_file: (args) => String(args.path || ''),
-  undo_edit: (args) => String(args.path || ''),
-  insert_text: (args) => `${args.path}:${args.line}`,
-  search_files: (args) => {
-    const pat = String(args.pattern || '');
-    const path = args.path ? ` in ${args.path}` : '';
-    return `"${pat}"${path}`;
-  },
-  find_files: (args) => {
-    const pat = String(args.pattern || '');
-    const path = args.path ? ` in ${args.path}` : '';
-    return `${pat}${path}`;
-  },
-  execute_python: (args) => {
-    const code = String(args.code || '');
-    const firstLine = code.split('\n')[0].trim();
-    const lineCount = code.split('\n').length;
-    return lineCount > 1 ? `${firstLine} ... (${lineCount} lines)` : firstLine;
-  },
-  execute_command: (args) => String(args.command || ''),
-  list_directory: (args) => String(args.path || '.'),
-  git_status: (args) => String(args.path || '.'),
-  git_diff: (args) => {
-    const path = args.path ? String(args.path) : '';
-    const staged = args.staged ? ' (staged)' : '';
-    return `${path}${staged}` || '.';
-  },
-  git_commit: (args) => {
-    const msg = String(args.message || '');
-    return msg.length > 60 ? `${msg.slice(0, 60)}...` : msg;
-  },
-  display_images: (args) => {
-    const urls = Array.isArray(args.urls) ? (args.urls as string[]) : [];
-    const title = args.title ? ` — ${String(args.title)}` : '';
-    return `${urls.length} image${urls.length !== 1 ? 's' : ''}${title}`;
-  },
-};
-
-const SUMMARY_MAX_LEN = 80;
-
-function defaultToolSummary(args: Record<string, unknown>): string {
-  // Show only the first string value — it identifies what the tool acted on.
-  // Skip numeric/boolean config params (e.g. max_chars, timeout) entirely.
-  for (const val of Object.values(args)) {
-    if (typeof val === 'string' && val.length > 0 && !/^\d+(\.\d+)?$/.test(val)) {
-      return val.slice(0, SUMMARY_MAX_LEN) + (val.length > SUMMARY_MAX_LEN ? '...' : '');
-    }
-  }
-  return '';
-}
-
 function formatToolName(name: string): string {
   return name
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-function getToolSummary(name: string, args: Record<string, unknown> | string): string {
-  if (typeof args === 'string') return args.slice(0, TOOL_SUMMARY_MAX_LENGTH);
-  const summarizer = TOOL_SUMMARIZERS[name];
-  return summarizer ? summarizer(args) : defaultToolSummary(args);
 }
 
 /** Track elapsed time while a condition is active, with debounced deactivation. */
@@ -419,21 +354,14 @@ const CompletedOutput: React.FC<{
   );
 };
 
-const FILE_DIFF_OPS: Record<string, { label: string; color: string; bg: string }> = {
-  write_file: { label: 'created', color: '#3fb950', bg: 'rgba(63,185,80,0.10)' },
-  edit_file:  { label: 'edited',  color: '#d29922', bg: 'rgba(210,153,34,0.10)' },
-  insert_text:{ label: 'inserted',color: '#58a6ff', bg: 'rgba(88,166,255,0.10)' },
-  undo_edit:  { label: 'reverted',color: '#e8912d', bg: 'rgba(232,145,45,0.10)' },
-};
-
 const MAX_DIFF_LINES = 300;
 
 /**
- * Inline diff view for file manipulation tools (write_file, edit_file, insert_text).
+ * Inline diff view for file mutation tools (write_file, edit_file, insert_text, undo_edit).
  * Always visible below the tool header — no click required.
  */
 const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = ({ name, args }) => {
-  const op = FILE_DIFF_OPS[name];
+  const op = getToolDef(name).diffOp;
   if (!op) return null;
 
   const path = String(args.path || '');
@@ -441,14 +369,21 @@ const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = 
   type DiffLine = { type: 'add' | 'remove'; content: string };
   let lines: DiffLine[] = [];
 
+  let addCount = 0;
+  let removeCount = 0;
+
   if (name === 'write_file') {
     lines = String(args.content || '').split('\n').map((l) => ({ type: 'add', content: l }));
+    addCount = lines.length;
   } else if (name === 'edit_file') {
     const removed = String(args.old_string || '').split('\n').map((l) => ({ type: 'remove' as const, content: l }));
     const added   = String(args.new_string || '').split('\n').map((l) => ({ type: 'add'    as const, content: l }));
     lines = [...removed, ...added];
+    addCount = added.length;
+    removeCount = removed.length;
   } else if (name === 'insert_text') {
     lines = String(args.content || '').split('\n').map((l) => ({ type: 'add', content: l }));
+    addCount = lines.length;
   }
   // undo_edit: no content diff available, just show path badge
 
@@ -491,6 +426,13 @@ const FileDiffView: React.FC<{ name: string; args: Record<string, unknown> }> = 
       {/* File path + operation badge */}
       <div className="flex items-center gap-2 bg-card px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{path}</span>
+        {(addCount > 0 || removeCount > 0) && (
+          <span className="flex-shrink-0 font-mono text-[10px]">
+            {addCount > 0 && <span style={{ color: '#3fb950' }}>+{addCount}</span>}
+            {addCount > 0 && removeCount > 0 && <span className="text-muted-foreground"> </span>}
+            {removeCount > 0 && <span style={{ color: '#f85149' }}>-{removeCount}</span>}
+          </span>
+        )}
         <span
           className="flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide"
           style={{ color: op.color, background: op.bg }}
@@ -576,18 +518,44 @@ const ImageGallery: React.FC<{ output: string }> = ({ output }) => {
   );
 };
 
-/** Detect syntax highlighting language for a tool's output. */
-function getOutputLanguage(name: string, args: Record<string, unknown> | string): string | null {
-  if (typeof args !== 'object') return null;
-  if (name === 'read_file') return detectLanguageFromPath(String(args.path || ''));
-  if (name === 'git_diff') return 'diff';
-  return null;
+type ParsedOutput = {
+  toolResultStatus: 'success' | 'error' | undefined;
+  displayImagesJson: string | null;
+  cleanOutput: string | null | undefined;
+  subAgentConvId: string | null;
+};
+
+const SUB_AGENT_SESSION_RE = /\n\[sub_agent_session:([^\]]+)\]$/;
+
+function parseToolOutput(output: string | undefined): ParsedOutput {
+  const statusMatch = output?.match(/^\[TOOL_RESULT:(success|error)\]/);
+  const toolResultStatus = statusMatch?.[1] as 'success' | 'error' | undefined;
+  let raw = statusMatch ? (output ?? '').slice(statusMatch[0].length) : output;
+
+  // Extract sub-agent session link marker before other parsing.
+  let subAgentConvId: string | null = null;
+  if (raw) {
+    const sessionMatch = raw.match(SUB_AGENT_SESSION_RE);
+    if (sessionMatch) {
+      subAgentConvId = sessionMatch[1];
+      raw = raw.slice(0, raw.length - sessionMatch[0].length);
+    }
+  }
+
+  const imgMatch = raw?.match(/^\[DISPLAY_IMAGES\](\{.*\})$/s);
+  return {
+    toolResultStatus,
+    displayImagesJson: imgMatch?.[1] ?? null,
+    cleanOutput: imgMatch ? null : raw,
+    subAgentConvId,
+  };
 }
 
 const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> = ({
   toolCall,
   isGenerating,
 }) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
@@ -599,20 +567,15 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
     toolCall.duration_ms == null &&
     (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
   const elapsed = useElapsedTime(isExecuting);
-  const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);
+  const toolDef = getToolDef(toolCall.name);
+  const outputLanguage =
+    typeof toolCall.arguments === 'object' && toolCall.arguments !== null && toolDef.outputLanguage
+      ? toolDef.outputLanguage(toolCall.arguments as Record<string, unknown>)
+      : null;
 
-  // Parse [TOOL_RESULT:success/error] tag from output
-  const toolResultMatch = toolCall.output?.match(/^\[TOOL_RESULT:(success|error)\]/);
-  const toolResultStatus = toolResultMatch?.[1] as 'success' | 'error' | undefined;
-  const rawAfterStatus = toolResultMatch
-    ? (toolCall.output ?? '').slice(toolResultMatch[0].length)
-    : toolCall.output;
-  // Parse [DISPLAY_IMAGES]{...json} emitted by the display_images tool
-  const displayImagesMatch = rawAfterStatus?.match(/^\[DISPLAY_IMAGES\](\{.*\})$/s);
-  const displayImagesJson = displayImagesMatch?.[1] ?? null;
-  const cleanOutput = displayImagesMatch ? null : rawAfterStatus;
+  const { toolResultStatus, displayImagesJson, cleanOutput, subAgentConvId } = parseToolOutput(toolCall.output);
   const hasOutput = !!cleanOutput && cleanOutput.length > 0;
-  const hasDiffView = typeof toolCall.arguments === 'object' && toolCall.name in FILE_DIFF_OPS;
+  const hasDiffView = typeof toolCall.arguments === 'object' && !!toolDef.diffOp;
   const expandedContent = (
     <pre className="max-h-64 overflow-x-auto overflow-y-auto overscroll-contain whitespace-pre-wrap bg-card px-3 py-2 font-mono text-xs text-foreground">
       {formatToolArguments(toolCall.arguments)}
@@ -655,6 +618,15 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
     />
   ) : null;
   const galleryEl = displayImagesJson !== null ? <ImageGallery output={displayImagesJson} /> : null;
+  const subAgentLinkEl = subAgentConvId ? (
+    <button
+      className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors border-t border-border/50"
+      onClick={() => window.dispatchEvent(new CustomEvent('load-conversation', { detail: { id: subAgentConvId } }))}
+    >
+      <span>↗</span>
+      <span>{t('toolCallBlock.viewSubAgentSession')}</span>
+    </button>
+  ) : null;
 
   return (
     <div className="flat-card overflow-hidden" style={{ contain: 'content' }}>
@@ -663,40 +635,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
       {!!isExpanded && expandedContent}
       {outputEl}
       {galleryEl}
+      {subAgentLinkEl}
     </div>
   );
 };
 
 // ─── Context-tool grouping ────────────────────────────────────────────────────
-
-/** Read-only tools with no visible side effects — grouped into a collapsed batch. */
-const CONTEXT_TOOLS = new Set([
-  'read_file',
-  'list_directory',
-  'find_files',
-  'search_files',
-  'web_fetch',
-  'web_search',
-  'check_background_process',
-  'check_environment',
-  'find_executable',
-  'git_status',
-  'git_diff',
-]);
-
-const CONTEXT_TOOL_LABELS: Record<string, string> = {
-  read_file: 'read',
-  list_directory: 'list',
-  find_files: 'find',
-  search_files: 'search',
-  web_fetch: 'fetch',
-  web_search: 'search',
-  check_background_process: 'check',
-  check_environment: 'check',
-  find_executable: 'find',
-  git_status: 'git',
-  git_diff: 'git',
-};
 
 type ToolGroup =
   | { type: 'single'; toolCall: ToolCall }
@@ -716,7 +660,7 @@ function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
   };
 
   for (const tc of toolCalls) {
-    if (CONTEXT_TOOLS.has(tc.name)) {
+    if (getToolDef(tc.name).isContext) {
       pending.push(tc);
     } else {
       flushPending();
@@ -730,7 +674,7 @@ function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
 function buildContextSummary(toolCalls: ToolCall[]): string {
   const counts: Record<string, number> = {};
   for (const tc of toolCalls) {
-    const label = CONTEXT_TOOL_LABELS[tc.name] ?? tc.name;
+    const label = getToolDef(tc.name).contextLabel ?? tc.name;
     counts[label] = (counts[label] ?? 0) + 1;
   }
   return Object.entries(counts)
