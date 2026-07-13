@@ -57,7 +57,7 @@ fn write_nsis_installer_hooks() {
         }
     }
 
-    // Build the `File` directive list dynamically.
+    // Build the `File` directive list dynamically — only include DLLs that exist.
     let backend_dlls: &[&str] = &["ggml.dll", "ggml-base.dll", "ggml-cpu.dll", "llama.dll"];
     let vc_dll_names: Vec<String> = vc_redist_dlls
         .iter()
@@ -67,9 +67,12 @@ fn write_nsis_installer_hooks() {
     let mut file_lines = String::new();
     let mut delete_lines = String::new();
     for dll in backend_dlls.iter().map(|s| s.to_string()).chain(vc_dll_names.iter().cloned()) {
-        file_lines.push_str(&format!(
-            "  File /oname={dll} \"{target_release_str}\\{dll}\"\n"
-        ));
+        let dll_path = target_release.join(&dll);
+        if dll_path.exists() {
+            file_lines.push_str(&format!(
+                "  File /oname={dll} \"{target_release_str}\\{dll}\"\n"
+            ));
+        }
         delete_lines.push_str(&format!("  Delete \"$INSTDIR\\{dll}\"\n"));
     }
 
