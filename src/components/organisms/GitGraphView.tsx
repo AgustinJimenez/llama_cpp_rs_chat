@@ -137,6 +137,7 @@ export const GitGraphView: React.FC = () => {
         detailPanelWidth={detailPanelWidth} path={path} displayRows={displayRows}
         onSelectHash={handleSelectHash} onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick} onSelectParent={handleSelectHash}
+        onCloseDetail={() => setSelectedHash(null)}
         onSelectBranch={handleSelectBranch} branchScrollHash={branchScrollHash}
         onSelectFile={setSelectedDiffFile}
         onSelectStagingFile={(file, kind) => { setStagingDiffFile(file); setStagingDiffKind(kind); }}
