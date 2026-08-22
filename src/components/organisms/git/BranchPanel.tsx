@@ -21,12 +21,16 @@ const BranchSection: React.FC<{
   const entriesContent = open
     ? entries.map((e) => {
         const isActive = e.hash === selectedHash;
-        const rowCls = `flex w-full min-w-0 items-center gap-1.5 px-3 py-1 text-xs ${isActive ? 'bg-muted/70 text-foreground' : 'text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`;
+        const rowCls = `flex w-full min-w-0 items-center gap-1.5 border-l-2 px-2.5 py-1 text-xs ${
+          e.isCurrent
+            ? 'border-emerald-400 bg-emerald-400/10 text-emerald-300'
+            : `border-transparent ${isActive ? 'bg-muted/70 text-foreground' : 'text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`
+        }`;
         const dotCls = `size-1.5 shrink-0 rounded-full ${e.isCurrent ? 'bg-emerald-400' : dotBase}`;
         return (
           <button type="button" key={e.name} className={rowCls} onClick={() => onSelect(e.hash)}>
             <span className={dotCls} />
-            <span className="min-w-0 truncate">{e.name}</span>
+            <span className={`min-w-0 truncate ${e.isCurrent ? 'font-semibold' : ''}`}>{e.name}</span>
           </button>
         );
       })

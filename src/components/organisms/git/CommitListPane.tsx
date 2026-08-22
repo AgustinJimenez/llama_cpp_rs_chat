@@ -3,19 +3,17 @@ import {
   ArchiveRestore,
   ArrowDown,
   ArrowUp,
-  ChevronDown,
-  ChevronUp,
   GitBranch,
   Pencil,
   RefreshCw,
   Search,
-  X,
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { AssignedCommit, GraphEdge } from '../../../utils/gitGraph';
 
+import { CommitSearchBar } from './CommitSearchBar';
 import { AUTHOR_COL_W, DATE_COL_W, LANE_W, NODE_R, REFS_COL_W, ROW_H, SVG_PAD_R } from './constants';
 import type { FileChange } from './types';
 import { VirtualCommitScroll } from './VirtualCommitScroll';
@@ -45,6 +43,7 @@ interface CommitListPaneProps {
   onStash: () => void;
   onPop: () => void;
   onCreateBranch: () => void;
+  branchScrollHash: string | null;
 }
 
 export type { FileChange };
@@ -55,6 +54,7 @@ export const CommitListPane: React.FC<CommitListPaneProps> = ({
   toolbarBusy, path, displayRows,
   onSelectHash, onContextMenu, onDoubleClick, onOpenStaging,
   onSetWipMsg, onSetSearchQuery, onFetch, onPull, onPush, onStash, onPop, onCreateBranch,
+  branchScrollHash,
 }) => {
   const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -72,11 +72,12 @@ export const CommitListPane: React.FC<CommitListPaneProps> = ({
   const disabled = !path.trim() || !!toolbarBusy;
   const matchCount = filteredCommits.length;
   const safeIdx = matchCount > 0 ? Math.min(searchMatchIdx, matchCount - 1) : 0;
-  const scrollToHash = searchOpen && matchCount > 0 ? filteredCommits[safeIdx].hash : null;
+  const searchScrollToHash = searchOpen && matchCount > 0 ? filteredCommits[safeIdx].hash : null;
+  const scrollToHash = searchScrollToHash ?? branchScrollHash;
 
   useEffect(() => {
-    if (scrollToHash) onSelectHash(scrollToHash);
-  }, [scrollToHash, onSelectHash]);
+    if (searchScrollToHash) onSelectHash(searchScrollToHash);
+  }, [searchScrollToHash, onSelectHash]);
 
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
@@ -102,43 +103,16 @@ export const CommitListPane: React.FC<CommitListPaneProps> = ({
   };
 
   const searchBarEl = searchOpen && (
-    <div className="absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-2">
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 shadow-lg">
-        <Search className="size-4 shrink-0 text-muted-foreground/60" />
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => handleSearchQueryChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') closeSearch();
-            else if (e.key === 'Enter') {
-              if (e.shiftKey) searchPrev(); else searchNext();
-            }
-          }}
-          placeholder={t('gitGraph.searchPlaceholder')}
-          className="w-52 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
-        />
-        {searchQuery.trim() && matchCount > 0 && (
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-            {safeIdx + 1} / {matchCount}
-          </span>
-        )}
-        {searchQuery.trim() && matchCount === 0 && (
-          <span className="shrink-0 text-xs text-destructive/80">{t('gitGraph.noResults')}</span>
-        )}
-        <div className="mx-1 h-4 w-px bg-border/40" />
-        <button type="button" onClick={searchPrev} disabled={matchCount === 0} className="rounded p-1 hover:bg-muted disabled:opacity-30" title="Previous (Shift+Enter)">
-          <ChevronUp className="size-4" />
-        </button>
-        <button type="button" onClick={searchNext} disabled={matchCount === 0} className="rounded p-1 hover:bg-muted disabled:opacity-30" title="Next (Enter)">
-          <ChevronDown className="size-4" />
-        </button>
-        <button type="button" onClick={closeSearch} className="rounded p-1 hover:bg-muted" title="Close (Esc)">
-          <X className="size-4" />
-        </button>
-      </div>
-    </div>
+    <CommitSearchBar
+      inputRef={searchInputRef}
+      searchQuery={searchQuery}
+      matchCount={matchCount}
+      safeIdx={safeIdx}
+      onChange={handleSearchQueryChange}
+      onClose={closeSearch}
+      onNext={searchNext}
+      onPrev={searchPrev}
+    />
   );
 
   return (

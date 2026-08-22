@@ -167,6 +167,11 @@ export function flattenDirTree(
   return items;
 }
 
+// ── HEAD detection ────────────────────────────────────────────────────────────
+export function isHeadCommit(commit: AssignedCommit): boolean {
+  return commit.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD -> '));
+}
+
 // ── Branch extraction ─────────────────────────────────────────────────────────
 export function extractBranches(commits: AssignedCommit[]): {
   local: BranchEntry[];
@@ -178,11 +183,12 @@ export function extractBranches(commits: AssignedCommit[]): {
   const tags: BranchEntry[] = [];
   const seen = new Set<string>();
   for (const c of commits) {
-    for (const ref of c.refs) {
-      if (ref === 'HEAD' || ref.includes(' -> ')) continue;
+    for (const rawRef of c.refs) {
+      if (rawRef === 'HEAD') continue;
+      const isCurrent = rawRef.startsWith('HEAD -> ');
+      const ref = isCurrent ? rawRef.slice('HEAD -> '.length) : rawRef;
       let name = ref;
       let kind: BranchEntry['kind'];
-      const isCurrent = false;
       if (ref.startsWith('tag: ')) {
         name = ref.slice('tag: '.length);
         kind = 'tag';
@@ -197,13 +203,6 @@ export function extractBranches(commits: AssignedCommit[]): {
       if (kind === 'local') local.push(entry);
       else if (kind === 'remote') remote.push(entry);
       else tags.push(entry);
-    }
-    for (const ref of c.refs) {
-      if (ref.startsWith('HEAD -> ')) {
-        const name = ref.slice('HEAD -> '.length);
-        const found = local.find((e) => e.name === name);
-        if (found) found.isCurrent = true;
-      }
     }
   }
   return { local, remote, tags };

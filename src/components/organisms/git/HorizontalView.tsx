@@ -4,6 +4,7 @@ import type { AssignedCommit, GraphEdge } from '../../../utils/gitGraph';
 
 import { CommitRow } from './CommitRow';
 import { HGraphSvg } from './HGraphSvg';
+import { isHeadCommit } from './utils';
 
 interface HorizontalViewProps {
   commits: AssignedCommit[];
@@ -24,7 +25,7 @@ export const HorizontalView: React.FC<HorizontalViewProps> = ({
     </div>
     <div className="min-h-0 flex-1 overflow-auto px-4">
       {commits.map((c) => (
-        <CommitRow key={c.hash} commit={c} isSelected={c.hash === selectedHash} onSelect={onSelectHash} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} />
+        <CommitRow key={c.hash} commit={c} isSelected={c.hash === selectedHash} isHead={isHeadCommit(c)} onSelect={onSelectHash} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} />
       ))}
     </div>
   </div>

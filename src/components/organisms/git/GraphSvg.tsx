@@ -14,6 +14,7 @@ import {
   SVG_PAD_R,
 } from './constants';
 import { useAvatars } from './useAvatars';
+import { isHeadCommit } from './utils';
 
 function edgeSvgPath(e: GraphEdge): string {
   const x1 = e.fromLane * LANE_W + LANE_W / 2;
@@ -43,7 +44,9 @@ export const GraphSvg: React.FC<{
     <svg width={svgW} height={svgH} className="shrink-0" aria-hidden="true">
       <g>
         {commits.map((c) => {
-          const rowCls = c.hash === selectedHash ? 'fill-muted/70' : 'fill-transparent';
+          let rowCls = 'fill-transparent';
+          if (c.hash === selectedHash) rowCls = 'fill-muted/70';
+          else if (isHeadCommit(c)) rowCls = 'fill-emerald-400/10';
           return (
             <rect
               key={`row-${c.hash}`}
