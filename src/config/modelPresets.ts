@@ -107,6 +107,26 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     gpu_layers: 40,
   },
 
+  // Qwen3.8-27B (dense, qwen35 arch, 65 layers, vision-capable, IQ4_XS ~14.5GB weights)
+  // GGUF embeds temp=1.0/top_p=0.95/top_k=20 (benchmark values); top_p/top_k match author
+  // recommendation, temp lowered to 0.6 for regular generation (same convention as
+  // Ornith-1.0-35B and Carnice-V2-27B). Dense model (no expert_count in GGUF) — full
+  // gpu_layers offload is safe, no hybrid-recurrent MoE cap needed.
+  'Qwen3.8-27B': {
+    sampler_type: 'Temperature',
+    temperature: 0.6,
+    top_p: 0.95,
+    top_k: 20,
+    min_p: 0.0,
+    presence_penalty: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    flash_attention: true,
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
+    gpu_layers: 65,
+  },
+
   // Carnice-V2-27B (Qwen3.6-27B dense finetune, Hermes-style agent, Q4_K_M)
   // Thinking mode: temp=1.0, top_p=0.95, presence_penalty=0.0 (dense, NOT MoE)
   'Carnice-V2-27B': {
