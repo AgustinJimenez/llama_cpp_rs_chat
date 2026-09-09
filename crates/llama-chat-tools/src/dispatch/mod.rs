@@ -335,8 +335,7 @@ pub fn dispatch_native_tool(
             "count": n
         });
         return Some(NativeToolResult::text_only(format!(
-            "[DISPLAY_IMAGES]{}",
-            output
+            "[DISPLAY_IMAGES]{output}"
         )));
     }
     if name == "send_telegram" {

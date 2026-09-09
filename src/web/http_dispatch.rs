@@ -402,7 +402,7 @@ pub async fn dispatch(
         }
 
         (&Method::POST, "/api/model/unload") => {
-            super::routes::model::handle_post_model_unload(bridge.clone()).await?
+            super::routes::model::handle_post_model_unload(bridge.clone(), pool.clone()).await?
         }
 
         (&Method::POST, "/api/model/hard-unload") => {
@@ -478,7 +478,7 @@ pub async fn dispatch(
         }
         (&Method::DELETE, path) if path.starts_with("/api/agents/") => {
             let id = &path["/api/agents/".len()..];
-            super::routes::agents::handle_delete_agent(id, db.clone()).await?
+            super::routes::agents::handle_delete_agent(id, pool.clone(), db.clone()).await?
         }
         // Agent lifecycle (activate/stop) — must be before /api/agents/:id PUT catch-all
         (&Method::POST, path)

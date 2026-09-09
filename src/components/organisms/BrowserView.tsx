@@ -48,8 +48,10 @@ export const BrowserView = React.memo(() => {
   const panelOpenedRef = useRef(false);
   const pendingNavigateRef = useRef(false);
 
-  // Open Google as default page when browser view opens with no URL
+  // In Tauri desktop mode, open Google as the default page when the panel opens with no URL.
+  // In web mode, just show the URL bar — don't auto-navigate (would open a separate wry window).
   useEffect(() => {
+    if (!TAURI) return;
     if (isBrowserViewOpen && !browserViewUrl) {
       openBrowserView('https://www.google.com');
     }
@@ -229,12 +231,8 @@ export const BrowserView = React.memo(() => {
     openBrowserView(fullUrl);
   };
 
-  // Web mode: when browserViewUrl changes (e.g. agent navigation), open wry window
-  useEffect(() => {
-    if (TAURI || !browserViewUrl || !isBrowserViewOpen) return;
-    webNavigate(browserViewUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browserViewUrl, isBrowserViewOpen]);
+  // Web mode: agent browser tools open the wry window directly via the backend, so no
+  // redundant webNavigate call here. Manual URL navigation (URL bar) still calls webNavigate.
 
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {

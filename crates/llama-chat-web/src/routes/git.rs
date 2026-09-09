@@ -145,7 +145,7 @@ pub async fn handle_git_commit_create(req: Request<Body>) -> Result<Response<Bod
         return Ok(json_error(StatusCode::BAD_REQUEST, "path and message required"));
     }
     let result = tokio::task::spawn_blocking(move || {
-        let full = if description.is_empty() { message } else { format!("{}\n\n{}", message, description) };
+        let full = if description.is_empty() { message } else { format!("{message}\n\n{description}") };
         run_git_simple(&path, &["commit", "-m", &full])
     }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
     match result {
@@ -310,7 +310,7 @@ pub async fn handle_git_amend(req: Request<Body>) -> Result<Response<Body>, Infa
         if message.is_empty() {
             run_git_simple(&path, &["commit", "--amend", "--no-edit"])
         } else {
-            let full = if description.is_empty() { message.clone() } else { format!("{}\n\n{}", message, description) };
+            let full = if description.is_empty() { message.clone() } else { format!("{message}\n\n{description}") };
             run_git_simple(&path, &["commit", "--amend", "-m", &full])
         }
     }).await.unwrap_or_else(|e| Err(format!("task: {e}")));
