@@ -175,7 +175,8 @@ const InputRow = ({
       <button
         type="button"
         onClick={onFileClick}
-        className="flex flex-shrink-0 items-center py-1 opacity-40 transition-opacity hover:opacity-70"
+        disabled={disabled}
+        className="flex flex-shrink-0 items-center py-1 opacity-40 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:hover:opacity-40"
         title="Attach files"
         aria-label="Attach files"
       >
