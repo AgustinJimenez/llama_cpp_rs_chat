@@ -1,7 +1,47 @@
 # 003 — VRAM fit is calculated, then discarded; user never warned when a config won't fit
 
-Status: OPEN — root-caused, fix not written
+Status: PARTIAL — (a) and (b) fixed 2026-09-10; (c) the warning still open
 Found: 2026-09-10, while testing the Qwen 3.8 27B agent after the llama-cpp-rs v0.1.157 upgrade
+
+## Progress
+
+**Done — (a) + (b): the optimizer's context is now applied.**
+`model-config/index.tsx` no longer takes the GGUF `context_length` as a default. The
+model-max seed clamps to `optimized.optimalContextSize` once the optimizer is ready, and the
+auto-apply effect now sets the context too (delivering what its comment already promised).
+Both respect `savedConfigLoaded` — an explicit user config still wins.
+
+**Two important limits of that fix:**
+
+1. **Existing saved agents are NOT migrated.** The `Qwen 3.8 27B` agent is still stored at
+   `context_size = 262144` and will still starve VRAM until changed. Overriding a saved
+   user value was deliberately left alone (the guard is pre-existing and intentional), so
+   fixing already-broken agents needs either a manual edit or an explicit migration
+   decision.
+2. It prevents *new* misconfigurations only, which is why (c) still matters.
+
+**Still open — (c) the warning. Now much cheaper than first thought:**
+
+The warning **already exists** — `MemoryVisualization.tsx:184` renders
+`t('memoryVisualization.overcommitted')` in red, driven by `vram.overcommitted` from
+`useMemoryCalculation` (`useMemoryCalculation.ts:239`).
+
+It never fired because it compares projected usage against **total** VRAM:
+`model-config/index.tsx:87` aliases `totalVramGb` as `availableVramGb`. In the failing case
+~20.4 GB projected vs 22.49 GB *total* is not "overcommitted" — even though another model
+was already holding ~7 GB, so it genuinely did not fit.
+
+The missing input is already available: `useSystemResources()` exposes `usage.vram_used_gb`
+(`SystemResourcesContext.tsx:26`), so free VRAM is `totalVramGb - usage.vram_used_gb` with no
+context change required.
+
+**The one design care-point:** free VRAM is pessimistic when the user is simply
+*reconfiguring the model that is currently loaded* — its own VRAM counts as "used" but will
+be released on reload. Naively budgeting against free VRAM there would cry wolf on the most
+common path, and a warning that fires spuriously gets ignored. Either subtract the
+outgoing model's footprint, or keep `overcommitted` (vs total) as the hard red error and add
+a distinct softer amber notice for "N GB is currently in use by other models" — the latter is
+probably the honest framing since we can't always know what will be evicted.
 
 ## Symptom
 
