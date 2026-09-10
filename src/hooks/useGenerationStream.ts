@@ -197,7 +197,7 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
 
             onComplete: (result) => {
               if (streamSeqRef.current !== streamSeq) return;
-              const { conversationId, timings, tokensUsed, maxTokens } = result;
+              const { conversationId, timings, tokensUsed, maxTokens, serverMessageId } = result;
 
               console.warn(
                 '[useChat] Streaming complete',
@@ -261,19 +261,28 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
               setIsLoading(false);
 
-              // Reload message content from DB to fix truncation caused by
-              // streamSeq mismatch (e.g. yn_continue fired mid-stream and
+              // Reload message content from DB to fix truncation or total token loss
+              // caused by streamSeq mismatch (e.g. yn_continue fired mid-stream and
               // discarded tokens that the backend already wrote to DB).
+              //
+              // Match on the id the BACKEND assigned (logger.rs mints its own UUID and
+              // returns it on completion), not `assistantMessageId` — that one is a local
+              // client-side placeholder from generateId() and never equals the DB row id,
+              // so an id-only lookup silently no-ops on every generation and this safety
+              // net never fires. Fall back to the last assistant row when the transport
+              // doesn't supply an id.
               const convId = conversationId || currentConversationIdRef.current;
               if (convId) {
                 getConversation(convId)
                   .then((data) => {
                     if (!data.messages) return;
-                    const dbMsg = (data.messages as Array<Record<string, unknown>>).find(
-                      (m) => String(m.id) === assistantMessageId,
-                    );
+                    const rows = data.messages as Array<Record<string, unknown>>;
+                    const dbMsg = serverMessageId
+                      ? rows.find((m) => String(m.id) === serverMessageId)
+                      : rows.filter((m) => String(m.role) === 'assistant').pop();
                     if (!dbMsg) return;
                     const dbContent = String(dbMsg.content ?? '');
+                    if (!dbContent) return;
                     setMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === assistantMessageId && msg.content !== dbContent
