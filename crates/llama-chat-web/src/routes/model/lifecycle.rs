@@ -192,14 +192,21 @@ pub async fn handle_post_model_unload(
 pub async fn handle_post_model_hard_unload(
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: crate::worker_pool::WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
+        // Kill agent/overflow workers too — this endpoint promises "all memory reclaimed",
+        // but it used to force-unload only the default worker. Any agent-bound model kept
+        // its VRAM and no API call could free it.
+        let killed = pool.kill_named_workers().await;
         match bridge.force_unload().await {
             Ok(_) => Ok(json_raw(
                 StatusCode::OK,
-                r#"{"success":true,"message":"Worker process killed, memory reclaimed"}"#
-                    .to_string(),
+                format!(
+                    r#"{{"success":true,"message":"Worker processes killed, memory reclaimed","named_workers_killed":{killed}}}"#
+                ),
             )),
             Err(e) => Ok(json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,

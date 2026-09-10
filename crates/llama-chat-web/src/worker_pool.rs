@@ -196,6 +196,12 @@ impl WorkerPool {
         // two so that, e.g., a 24 GB GPU with 128 GB RAM doesn't skip eviction and lets
         // two large models fight over VRAM. If VRAM can't be detected we fall back to RAM.
         let total_vram = total_gpu_vram_bytes();
+        // Live free VRAM is the ground truth when an NVIDIA GPU is present. The modelled
+        // residency total below can only see workers this pool still tracks, so it misses
+        // orphaned workers and unrelated GPU processes and can conclude there is room when
+        // VRAM is actually exhausted. 0 means "no NVIDIA GPU / no nvidia-smi" — fall back
+        // to the modelled path, which is all we have on AMD/Intel/Apple Silicon.
+        let free_vram = free_gpu_vram_bytes();
         let capacity = match (total_ram, total_vram) {
             (0, 0) => return, // unknown capacity — don't evict anything
             (r, 0) => r,
@@ -216,36 +222,51 @@ impl WorkerPool {
         // proportionally. This mirrors the modal's memory visualization math.
         let mut loaded: Vec<(WorkerId, SharedWorkerBridge, u64, bool)> = Vec::new();
         let mut resident: u64 = 0;
+        // VRAM the kept worker's outgoing model is about to release (it is being replaced
+        // by the incoming one), so it counts as available in the free-VRAM path.
+        let mut keep_vram: u64 = 0;
         for entry in self.list_entries() {
             if keep_id == Some(entry.id.as_str()) {
-                continue; // never count or evict the kept worker
+                if let Some(meta) = entry.bridge.model_status().await {
+                    keep_vram = vram_estimate(&meta);
+                }
+                continue; // never evict the kept worker
             }
             if let Some(meta) = entry.bridge.model_status().await {
-                let file_size = model_file_size(&meta.model_path);
-                // If we have gpu_layers and block_count from the runtime status, use the
-                // GPU fraction of the file size as the VRAM estimate for this worker.
-                // Otherwise fall back to the full file size (conservative).
-                let vram_size = match (meta.gpu_layers, meta.block_count) {
-                    (Some(gl), Some(bc)) if bc > 0 => {
-                        let frac = (gl.min(bc) as u64 * 1000) / bc as u64;
-                        file_size * frac / 1000
-                    }
-                    _ => file_size,
-                };
+                let vram_size = vram_estimate(&meta);
                 let generating = entry.bridge.is_generating().await;
                 resident = resident.saturating_add(vram_size);
                 loaded.push((entry.id, entry.bridge, vram_size, generating));
             }
         }
 
+        // Normalise both strategies to (needed, available); evicting a worker adds its
+        // footprint to `available`.
+        //
+        // GPU path: `available` starts from real free VRAM, so orphaned workers and other
+        // GPU processes are already accounted for — we don't have to model them. `reserve`
+        // covers the KV cache and compute buffers the incoming model needs on top of its
+        // weights.
+        //
+        // Fallback path (no NVIDIA GPU): the original modelled budget, where
+        // `new_size + resident <= budget` is equivalent to `new_size <= budget - resident`.
+        let (needed, mut available) = if free_vram > 0 {
+            (
+                new_size.saturating_add(reserve),
+                free_vram.saturating_add(keep_vram),
+            )
+        } else {
+            (new_size, budget.saturating_sub(resident))
+        };
+
         // Everything (including the incoming model) fits — keep all models resident.
-        if new_size.saturating_add(resident) <= budget {
+        if needed <= available {
             return;
         }
 
         // Tight: unload idle workers until the new model fits.
         for (id, bridge, size, generating) in loaded {
-            if new_size.saturating_add(resident) <= budget {
+            if needed <= available {
                 break; // freed enough
             }
             if generating {
@@ -256,8 +277,31 @@ impl WorkerPool {
             } else {
                 self.evict_named_worker(&id).await;
             }
-            resident = resident.saturating_sub(size);
+            available = available.saturating_add(size);
         }
+    }
+
+    /// Kill every *named* (agent + overflow) worker and clear their bindings, leaving the
+    /// default worker alone for the caller to handle.
+    ///
+    /// `hard-unload` used to reclaim only the default worker, because its handler is given
+    /// a single `SharedWorkerBridge` and never consults the pool. An agent or overflow
+    /// worker holding a model therefore kept all of its VRAM while the endpoint still
+    /// reported "memory reclaimed" — observed in the wild as a single worker holding ~20 GB
+    /// that no API call could free, recoverable only by killing the PID by hand.
+    ///
+    /// Returns the number of workers killed.
+    pub async fn kill_named_workers(&self) -> usize {
+        let named: Vec<WorkerId> = self
+            .list_worker_ids()
+            .into_iter()
+            .filter(|id| id != "default")
+            .collect();
+        let count = named.len();
+        for id in &named {
+            self.evict_named_worker(id).await;
+        }
+        count
     }
 
     /// Kill all workers (default + agent + overflow) and clear all bindings.
@@ -773,6 +817,47 @@ fn total_gpu_vram_bytes() -> u64 {
                 .filter_map(|l| l.trim().parse::<u64>().ok())
                 .sum();
             if total_mb > 0 { Some(total_mb * 1024 * 1024) } else { None }
+        })
+        .unwrap_or(0)
+}
+
+/// Estimate a loaded worker's VRAM footprint from its runtime status.
+///
+/// Uses the GPU fraction of the model file size, so a fully-CPU worker (`gpu_layers == 0`)
+/// doesn't count against the VRAM budget and a partially-offloaded one counts
+/// proportionally. Falls back to the full file size when layer counts are unknown
+/// (conservative). Mirrors the modal's memory visualization math.
+fn vram_estimate(meta: &llama_chat_worker::ModelMeta) -> u64 {
+    let file_size = model_file_size(&meta.model_path);
+    match (meta.gpu_layers, meta.block_count) {
+        (Some(gl), Some(bc)) if bc > 0 => {
+            let frac = (u64::from(gl.min(bc)) * 1000) / u64::from(bc);
+            file_size * frac / 1000
+        }
+        _ => file_size,
+    }
+}
+
+/// Query *currently free* GPU VRAM via nvidia-smi. Returns 0 if unavailable.
+///
+/// This is the ground truth for eviction decisions: unlike a modelled residency total
+/// summed from the workers this pool tracks, it also accounts for orphaned workers the
+/// pool has lost track of, and for VRAM held by unrelated processes on the same GPU
+/// (browsers, editors, other CUDA apps).
+fn free_gpu_vram_bytes() -> u64 {
+    std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|out| String::from_utf8(out).ok())
+        .and_then(|s| {
+            // One line per GPU (MiB). Sum across GPUs, mirroring total_gpu_vram_bytes.
+            let free_mb: u64 = s
+                .lines()
+                .filter_map(|l| l.trim().parse::<u64>().ok())
+                .sum();
+            if free_mb > 0 { Some(free_mb * 1024 * 1024) } else { None }
         })
         .unwrap_or(0)
 }

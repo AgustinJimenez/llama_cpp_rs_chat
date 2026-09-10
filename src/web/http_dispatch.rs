@@ -406,7 +406,8 @@ pub async fn dispatch(
         }
 
         (&Method::POST, "/api/model/hard-unload") => {
-            super::routes::model::handle_post_model_hard_unload(bridge.clone()).await?
+            super::routes::model::handle_post_model_hard_unload(bridge.clone(), pool.clone())
+                .await?
         }
 
         (&Method::GET, "/api/backends") => {
