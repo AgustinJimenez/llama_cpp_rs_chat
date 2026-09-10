@@ -109,7 +109,7 @@ fn test_position(backend: &LlamaBackend, model: &LlamaModel, context_size: u32, 
 
     // Sampler
     let mut sampler = LlamaSampler::chain(vec![
-        LlamaSampler::penalties(64, 1.0, 0.0, 1.5),
+        LlamaSampler::penalties(model.n_vocab(), 64, 1.0, 0.0, 1.5),
         LlamaSampler::temp(0.7),
         LlamaSampler::top_k(20),
         LlamaSampler::top_p(0.8, 1),
