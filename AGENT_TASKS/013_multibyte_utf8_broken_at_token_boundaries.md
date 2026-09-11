@@ -1,6 +1,6 @@
 # 013 — Multi-byte UTF-8 characters are corrupted at token boundaries
 
-Status: ROOT CAUSE CONFIRMED 2026-09-11 — not yet fixed
+Status: FIXED and VERIFIED 2026-09-11
 Found: 2026-09-11, visible as `�` in the desktop app; confirmed in raw server output
 
 ## Symptom
@@ -69,7 +69,43 @@ should be a shared helper rather than a local patch:
 3. Any structural validation added by [[002_malformed_response_detection_and_agent_feedback]]
    or [[009_automated_e2e_agent_harness]] would be matching against corrupted text.
 
-## Fix attempt 2026-09-11 — implemented, tests pass, symptom UNCHANGED
+## FIXED and VERIFIED 2026-09-11
+
+`crates/llama-chat-engine/src/utf8_stream.rs` implements `Utf8TokenDecoder`: accumulates raw
+token bytes, emits only complete UTF-8, carries an incomplete tail to the next token, and
+resynchronises past genuinely invalid bytes. 7 unit tests, including the exact `└`
+(E2 94 94) and 4-byte-emoji splits and every split point of a mixed string.
+
+`token_loop.rs` now decodes bytes (`token_to_bytes`) through the decoder instead of calling
+`token_to_str` per token. `token_to_bytes` exists at
+`deps/llama-cpp-rs/llama-cpp-2/src/model.rs:238` — **the gating question is answered: no
+fork work needed.**
+
+Verified live, after asserting the serving process's `build_id`:
+
+| Prompt | Before | After |
+|---|---|---|
+| Laravel directory tree | 59 `U+FFFD` | **0** |
+| Three tips with emoji | 5 `U+FFFD` | **0** |
+
+The tree now renders correctly: `└` ×40, `├` ×78, `│` ×164, `─` ×236 — every one of those
+`└` was previously a replacement character. Empty token events (the old first-half-of-a-split
+artifact) also dropped to 0.
+
+### Why the first attempt looked like it failed
+
+It did not fail; it was never running. Requests were being served by a **second process on
+port 18080** — see the note in [[012_eos_probe_prompt_leaks_into_visible_message]]. The fix
+was correct the whole time.
+
+### Remaining work
+
+Five other call sites still detokenise per token and should reuse `Utf8TokenDecoder`:
+`token_loop.rs:306` (EOS), `sub_agent.rs:188`, `tool_output/image_summary.rs:81`,
+`tool_output/summarize.rs:95`, `:247`, `:362`. None are on the main streaming path, so they
+were left out of this change deliberately.
+
+## Superseded — first attempt write-up (kept for the reasoning)
 
 `crates/llama-chat-engine/src/utf8_stream.rs` (new) implements `Utf8TokenDecoder`:
 accumulates raw token bytes, emits only complete UTF-8, carries an incomplete tail to the

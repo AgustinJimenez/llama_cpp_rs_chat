@@ -59,6 +59,35 @@ use tokio::task::spawn_blocking;
 use tokio::time::timeout;
 
 /// GET /api/info — app and system information
+/// Identity of the binary this process is actually running.
+///
+/// Exists because "did my rebuild take effect?" was unanswerable during AGENT_TASKS/012 and
+/// 013. Both investigations reached the same dead end: a fix verified present in the
+/// on-disk binary, in a process started after the build, still behaving like the old code.
+/// A build timestamp on disk cannot settle that — it says nothing about which image the
+/// *serving process* loaded. These fields do, because they are read from
+/// `current_exe()` by the process answering the request.
+///
+/// `build_id` changes on every compile (it is this crate's compile time), so a stale
+/// process is obvious at a glance rather than inferred from file mtimes.
+fn running_binary_info() -> serde_json::Value {
+    let exe = std::env::current_exe().ok();
+    let meta = exe.as_ref().and_then(|p| std::fs::metadata(p).ok());
+    let mtime_secs = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+
+    serde_json::json!({
+        "build_id": env!("LLAMA_CHAT_BUILD_ID"),
+        "exe_path": exe.as_ref().map(|p| p.display().to_string()),
+        "exe_size": meta.as_ref().map(std::fs::Metadata::len),
+        "exe_mtime_secs": mtime_secs,
+        "pid": std::process::id(),
+    })
+}
+
 pub async fn handle_app_info() -> Result<Response<Body>, Infallible> {
     let info = serde_json::json!({
         "app": "llama-chat",
@@ -69,6 +98,7 @@ pub async fn handle_app_info() -> Result<Response<Body>, Infallible> {
             "vision": cfg!(feature = "vision"),
             "cuda": cfg!(feature = "cuda"),
         },
+        "running_binary": running_binary_info(),
     });
     Ok(json_raw(
         StatusCode::OK,
