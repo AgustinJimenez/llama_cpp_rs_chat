@@ -1,7 +1,134 @@
 # 002 — Detect malformed model output and make the agent redo it
 
-Status: DESIGN — not implemented
+Status: ROOT CAUSE FOUND 2026-09-11 — the observed malformed output is OUR bug, not the model's
 Opened: 2026-09-10
+
+## 2026-09-11 — the "malformed model output" is self-inflicted
+
+The premise below (small models emit broken structure, we should detect it) is **not what
+was actually happening**. The corruption is injected by our own EOS probe.
+
+### Reproduction (100%, both models, trivial prompt)
+
+`POST /api/chat {"message": "Reply with exactly the word: OK"}` on Qwen3.5-9B stores:
+
+```
+The user wants me to reply with exactly the word OK. This is a simple acknowledgment request.
+</think>
+
+OK</think>
+
+DONE<|im_end|>
+```
+
+One generation pass, 26 tokens, `finish_reason: "stop"` — not an auto-continue concatenation.
+
+### Defect 1 — the probe verdict depends on the LITERAL first token
+
+`token_loop.rs` intercepts EOS and calls `sub_checks::inline_eos_probe()`, which injects
+`[SELF-CHECK] Are you completely done with the task? Type DONE if yes, or write your next
+action if not.` and reads the reply. The verdict is decided at `sub_checks.rs:252`:
+
+```rust
+if i == 0 {
+    let first = token_str.trim().to_uppercase();
+    if first == "DONE" || first == "Y" || first.starts_with("YES") { ...complete... }
+```
+
+A **thinking** model does not answer with a bare word. Its first token is the thinking-close
+tag. Server stderr, verbatim:
+
+```
+[EOS_PROBE] incomplete → 3 continuation tokens: "</think>\n\nDONE"
+```
+
+The model *did* say DONE — third token. The check never sees it, takes the continuation
+path, and injects the entire probe reply into the response as if it were real content.
+That is the whole observed artifact: the duplicate `</think>` and the stray `DONE`.
+
+This fires on **every** agent-mode turn that makes no tool call (`probe_no_tool_calls`,
+`token_loop.rs:239`), i.e. every ordinary conversational reply. Every thinking model is
+affected — it is not a small-model problem.
+
+It also explains the 27B's "hallucinated" `<tool_call>`: the model was obeying the hidden
+probe's *"or write your next action if not"*. It was answering a question we asked it and
+never showed the user.
+
+### Defect 2 — the probe's KV rollback is invalid on M-RoPE models
+
+Immediately after, in the same turn:
+
+```
+the last position stored in the KV cache for sequence 0 is X = 8070
+the tokens for sequence 0 in the input batch have a starting position of Y = 8040
+for M-RoPE, it is required that the position satisfies: X < Y
+decode: failed to initialize batch / llama_decode: failed to decode, ret = -1
+```
+
+`inline_eos_probe` injects probe + sampled tokens into the **live** KV cache and relies on
+`clear_kv_cache_seq(0, rollback_pos, None)` to undo it. On a multimodal-RoPE model (both of
+these are vision-capable) re-decoding at a position ≤ the stored max is rejected outright,
+so the turn's generation dies right there. This is what truncated the 27B mid-tag
+(`</parameter` with no `>`).
+
+### Defect 3 — NOT A BUG (retracted)
+
+`POST /api/chat` returning `message.content: ""` is **by design**, `routes/chat.rs:226`:
+
+```rust
+content: "".to_string(), // Empty - real content comes via WebSocket
+```
+
+It is a fire-and-forget endpoint that returns `conversation_id` so the client can attach a
+WebSocket. Recorded here because it was initially and wrongly cited as evidence of a
+parser bug; it was API misuse on my part, not a defect.
+
+### Consequence for this task's design
+
+Layer C (frontend safety net) would have **hidden** this rather than fixed it, and Layer B
+would have asked the model to "redo" output that our own probe corrupted. Fix the probe
+first; the detection layers below remain worth doing, but as defence in depth, not as the
+remedy.
+
+## Fix applied 2026-09-11 — Defect 1
+
+`sub_checks.rs` gained `probe_verdict_word(text, require_terminator)`, which strips markup
+spans (anything between `<` and `>`) and returns the first bare word. The verdict is now
+read from the accumulated reply rather than the literal first token, and the sampling loop
+stops as soon as a delimiter-terminated word appears. Tag spans are dropped generically
+rather than via `tool_tags.rs` config — a verdict is always a bare word, so this cannot
+drift out of sync with per-model tag configuration.
+
+Six unit tests pin the behaviour, including the exact observed reply `"</think>\n\nDONE"`.
+
+**Verified live on Qwen3.5-9B**, same prompt as the reproduction:
+
+| | stored assistant content | stderr |
+|---|---|---|
+| before | `...\n</think>\n\nOK</think>\n\nDONE<\|im_end\|>` | `[EOS_PROBE] incomplete → 3 continuation tokens` |
+| after | `...\n</think>\n\nOK<\|im_end\|>` | `[EOS_PROBE] 'DONE' → task complete` |
+
+A full agentic turn (tool call → result → summary) also runs clean. Note that turn
+legitimately contains **two** `</think>` tags as matched pairs — any future structural
+validator must count pairs, not occurrences, or it will flag correct output.
+
+## Still open
+
+- **Defect 2 (M-RoPE rollback) is unfixed and unreproduced.** It stopped triggering because
+  the probe now takes the "complete" path, which rolls back and stops without re-decoding.
+  The continuation path still injects into the live KV cache and rolls back, which the
+  M-RoPE constraint `X < Y` rejects. I could not force a continuation to reproduce it after
+  the fix, so I did not guess at a fix. Likely directions: skip the inline probe on M-RoPE
+  models (falling back to a disposable context), or keep the probe tokens rather than
+  rolling back. Needs a reliable way to trigger a continuation first.
+- `check_eos_continuation()` has **no callers** but contains the identical first-token
+  defect. Left unmodified (dead code); a warning comment now points at
+  `probe_verdict_word`.
+- Layers A/B/C below remain unimplemented, now correctly scoped as defence in depth.
+
+---
+
+## Original design (historical — premise partly invalidated above)
 
 ## Problem
 

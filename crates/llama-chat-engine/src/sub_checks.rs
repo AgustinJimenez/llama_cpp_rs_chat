@@ -18,6 +18,12 @@ pub struct EosContinuationResult {
 ///   those tokens are returned as `continuation_tokens` for seamless injection.
 ///
 /// Runs on a disposable 1 K-token context (~50 ms). The main KV cache is untouched.
+///
+/// **Currently has no callers.** Before wiring it up, note that its `i == 0` first-token
+/// verdict below carries the same defect that `inline_eos_probe` had: a thinking model
+/// replies with its thinking-close tag first, so the literal first token is never the
+/// bare verdict word. Use [`probe_verdict_word`] on the accumulated reply instead.
+/// See AGENT_TASKS/002.
 pub fn check_eos_continuation(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
@@ -160,6 +166,51 @@ use llama_chat_types::{SamplerConfig, SharedLlamaState};
 const EOS_PROBE_TEXT: &str =
     "\n\n[SELF-CHECK] Are you completely done with the task? Type DONE if yes, or write your next action if not.\n";
 
+/// The first bare word of a probe reply, ignoring any markup around it.
+///
+/// The verdict must NOT be read from the literal first token. A thinking-capable model
+/// answers this probe with its thinking-close tag and whitespace first — observed as
+/// `"</think>\n\nDONE"` — so a first-token test reads `</think>`, concludes "not done",
+/// and injects the model's private answer into the user-visible response. Every thinking
+/// model was affected; see AGENT_TASKS/002.
+///
+/// Tag spans are dropped generically (anything between `<` and `>`) rather than via the
+/// model's configured tag pairs: a verdict is always a bare word, so this needs no
+/// per-model knowledge and cannot drift out of sync with `tool_tags.rs`.
+///
+/// With `require_terminator`, returns `None` unless the word is followed by a delimiter,
+/// so a partially-sampled `"DON"` is never mistaken for a complete answer.
+fn probe_verdict_word(text: &str, require_terminator: bool) -> Option<String> {
+    let mut cleaned = String::new();
+    let mut in_tag = false;
+    for ch in text.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => cleaned.push(c),
+            _ => {}
+        }
+    }
+
+    let trimmed = cleaned.trim_start();
+    let word: String = trimmed
+        .chars()
+        .take_while(|c| c.is_alphanumeric())
+        .collect();
+    if word.is_empty() {
+        return None;
+    }
+    if require_terminator && trimmed.len() == word.len() {
+        return None; // nothing after the word yet — it may still be growing
+    }
+    Some(word.to_uppercase())
+}
+
+/// Does this probe reply mean "yes, I'm finished"?
+fn verdict_is_complete(word: &str) -> bool {
+    word == "DONE" || word == "Y" || word.starts_with("YES")
+}
+
 /// Probe the model for task completion using the **main** inference context.
 ///
 /// Unlike [`check_eos_continuation`] (which spins up a disposable 1 K context),
@@ -248,22 +299,15 @@ pub fn inline_eos_probe(
             .token_to_str(next_token, Special::Tokenize)
             .unwrap_or_default();
 
-        // First token decides: "DONE", "Y", or "YES" → complete.
-        if i == 0 {
-            let first = token_str.trim().to_uppercase();
-            if first == "DONE" || first == "Y" || first.starts_with("YES") {
-                // Roll back and report complete.
-                let _ = context.clear_kv_cache_seq(Some(0), Some(rollback_pos as u32), None);
-                eprintln!("[EOS_PROBE] '{first}' → task complete (inline probe)");
-                log_info!(conversation_id, "✅ Inline EOS probe: task complete (model said '{first}')");
-                return complete_result;
-            }
-            // Any other first token → continuation path.
-            is_done = false;
-        }
-
         continuation_text.push_str(&token_str);
         continuation_tokens.push(next_token);
+
+        // Stop as soon as a complete bare word has emerged — that word is the verdict,
+        // whatever markup preceded it. Sampling further would only lengthen a reply we
+        // are about to discard (on "done") or re-inject (on "not done").
+        if probe_verdict_word(&continuation_text, true).is_some() {
+            break;
+        }
 
         // Feed the sampled token back so the model can autoregress.
         let sample_pos = probe_end_pos + i as i32;
@@ -278,6 +322,19 @@ pub fn inline_eos_probe(
 
     // Always roll back — remove probe + any sampled tokens from the KV cache.
     let _ = context.clear_kv_cache_seq(Some(0), Some(rollback_pos as u32), None);
+
+    // Read the verdict from the reply as a whole. `require_terminator: false` because the
+    // loop may have ended on EOS or the token budget with the word still unterminated.
+    if let Some(word) = probe_verdict_word(&continuation_text, false) {
+        if verdict_is_complete(&word) {
+            is_done = true;
+            eprintln!("[EOS_PROBE] '{word}' → task complete (inline probe)");
+            log_info!(
+                conversation_id,
+                "✅ Inline EOS probe: task complete (model said '{word}')"
+            );
+        }
+    }
 
     if is_done || continuation_tokens.is_empty() {
         return complete_result;
@@ -664,4 +721,61 @@ pub fn generate_title_text(
     let result = title.trim().to_string();
     eprintln!("[WORKER] Title generated: {result:?}");
     Ok(result)
+}
+
+#[cfg(test)]
+mod probe_verdict_tests {
+    use super::{probe_verdict_word, verdict_is_complete};
+
+    /// The exact reply that broke every thinking model (AGENT_TASKS/002). Server stderr
+    /// recorded it verbatim as `[EOS_PROBE] incomplete → 3 continuation tokens:
+    /// "</think>\n\nDONE"`. The old first-token check read `</think>` and concluded the
+    /// model was not finished, leaking its private answer into the visible response.
+    #[test]
+    fn thinking_model_reply_is_recognised_as_done() {
+        let word = probe_verdict_word("</think>\n\nDONE", false).expect("a verdict word");
+        assert_eq!(word, "DONE");
+        assert!(verdict_is_complete(&word));
+    }
+
+    #[test]
+    fn plain_reply_still_recognised() {
+        for reply in ["DONE", "done", " Yes", "Y"] {
+            let word = probe_verdict_word(reply, false).expect("a verdict word");
+            assert!(verdict_is_complete(&word), "should be complete: {reply:?}");
+        }
+    }
+
+    #[test]
+    fn real_continuation_is_not_mistaken_for_done() {
+        let word = probe_verdict_word("</think>\n\nNext I will read the file.", false)
+            .expect("a verdict word");
+        assert_eq!(word, "NEXT");
+        assert!(!verdict_is_complete(&word));
+    }
+
+    /// A tool call opening the reply must not be read as a verdict of "done".
+    #[test]
+    fn tool_call_continuation_is_not_done() {
+        let word = probe_verdict_word("<tool_call>[{\"name\": \"read_file\"", false);
+        // Either no bare word yet, or a word that is plainly not a completion verdict.
+        assert!(word.as_deref().is_none_or(|w| !verdict_is_complete(w)));
+    }
+
+    /// Markup alone carries no verdict — keep sampling rather than guessing.
+    #[test]
+    fn markup_only_reply_has_no_verdict() {
+        assert_eq!(probe_verdict_word("</think>", false), None);
+        assert_eq!(probe_verdict_word("\n\n", false), None);
+    }
+
+    /// A half-sampled word must not be accepted while it may still be growing.
+    #[test]
+    fn unterminated_word_requires_terminator() {
+        assert_eq!(probe_verdict_word("</think>\n\nDON", true), None);
+        assert_eq!(
+            probe_verdict_word("</think>\n\nDONE\n", true).as_deref(),
+            Some("DONE")
+        );
+    }
 }
