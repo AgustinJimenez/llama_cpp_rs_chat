@@ -100,6 +100,66 @@ A correct fix needs both:
    wrongly ends a turn early; continuing wrongly shows the user our internal prompt. The
    first failure is far cheaper, so the default should be biased toward "done".
 
+## Fix attempt #1 — 2026-09-11 — DID NOT RESOLVE THE SYMPTOM
+
+Changed `inline_eos_probe` to (a) skip leading punctuation when reading the verdict word and
+(b) **discard the model's probe reply entirely**, returning a neutral `"\n\n"` nudge instead,
+so the reply can never become response content. 71 unit tests pass, clippy clean.
+
+**The live symptom is unchanged.** Re-ran an 11-prompt battery on Qwen3.5-9B: all 5 greeting
+prompts still produce
+
+```
+…Hello! How can I help you today?</think>\n\nI'm<|im_end|>
+```
+
+Do not repeat these checks — they are already done:
+
+| Ruled out | Evidence |
+|---|---|
+| Stale binary | Old strings `returning {} continuation tokens` / `inline probe continuation:` **absent** from `llama_chat_web.exe`; new `nudging continuation (probe reply discarded)` **present** (UTF-8 byte scan both directions) |
+| Stale process | Binary built 14:13:18, both processes started 14:17:46 |
+| Edit in the wrong function | Nudge code is at `sub_checks.rs:359-387`, inside `inline_eos_probe` (starts line 232), not the dead `check_eos_continuation` (line 27) |
+| Duplicate source copy | Only one live `sub_checks.rs`; the other hit is an unused `.claude/worktrees/` checkout |
+| Frontend rendering | Present in the **raw SSE bytes** off `curl` |
+
+## The contradiction that blocks progress
+
+The leaked text arrives as **one SSE event containing multi-token text**, with `tokens_used`
+not advancing:
+
+```
+data: {"token":"?","tokens_used":8045,...}
+data: {"token":"</think>\n\nI'm","tokens_used":8045,...}
+data: {"token":"<|im_end|>","tokens_used":8045,...}
+```
+
+A sampled token is always one token and advances the counter. A lump that does not advance
+it matches exactly one sender — `token_loop.rs:265-273`, which streams
+`check.continuation_text` from the probe. But that field is now hard-coded to `"\n\n"` in a
+binary verified to contain the new code.
+
+**So either the lump comes from a sender I have not identified, or my model of this path is
+wrong.** Both are possible; I could not distinguish them.
+
+## Observability is the blocker — fix this first
+
+`[EOS_PROBE]` never appears in captured output, so the probe's actual behaviour is
+unobservable:
+
+- `Stdio::inherit()` is set for the worker (`process_manager.rs:130`), and its `[WORKER]`
+  startup lines **do** reach the parent's redirected stderr — but `llama_model_loader`
+  output and every `eprintln!` from `sub_checks.rs` do not.
+- Tried `Start-Process -RedirectStandardError` and `cmd /c … > file 2>&1`; neither captures
+  them. No stderr redirection or `llama_log_set` call found in the worker source.
+- The DB `logs` table has no rows for these runs, so `log_info!`/`log_event` are also
+  silent (`disable_file_logging` defaults to 1).
+
+**Next step is instrumentation, not another fix attempt.** Add an unmissable channel —
+e.g. carry the probe outcome in the SSE `done` event, or write directly to a file from
+`inline_eos_probe` — then re-run `hi`. Guessing further without it will just produce a
+third wrong diagnosis after the first two.
+
 ## Fix direction
 
 - Skip leading non-alphanumerics (not just `<...>` spans) before reading the verdict word.

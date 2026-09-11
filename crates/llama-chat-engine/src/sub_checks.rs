@@ -192,7 +192,10 @@ fn probe_verdict_word(text: &str, require_terminator: bool) -> Option<String> {
         }
     }
 
-    let trimmed = cleaned.trim_start();
+    // Skip leading punctuation as well as whitespace. A reply that opens with a bracket
+    // — observed when the model answers by echoing `[SELF-CHECK] …` back at us — otherwise
+    // yields an empty word and no verdict at all (AGENT_TASKS/012).
+    let trimmed = cleaned.trim_start_matches(|c: char| !c.is_alphanumeric());
     let word: String = trimmed
         .chars()
         .take_while(|c| c.is_alphanumeric())
@@ -340,29 +343,48 @@ pub fn inline_eos_probe(
         return complete_result;
     }
 
+    // The model's reply is a signal, NOT content.
+    //
+    // It was sampled in a context that contains our hidden probe question, so it is an
+    // answer to *that* question — not a continuation of the user-visible response.
+    // Returning it verbatim is what leaked `[SELF-CHECK] …` and `</think>\n\nI'm` into the
+    // chat (AGENT_TASKS/012): to "hi" the model replied "I'm here and ready to help", which
+    // got pasted straight after "Hello! How can I help you today?".
+    //
+    // So we discard the reply and return a neutral nudge instead. The KV cache has already
+    // been rolled back above, so the probe text is gone from the model's context and the
+    // main token loop regenerates a real continuation of its own answer. This mirrors what
+    // the `force_continue` path in `token_loop.rs` already does.
+    let nudge = "\n\n";
+    let nudge_tokens: Vec<llama_cpp_2::token::LlamaToken> = match model
+        .str_to_token(nudge, AddBos::Never)
+    {
+        Ok(t) => t,
+        // Without a nudge we cannot resume past EOS; accepting EOS is the safe failure.
+        Err(_) => return complete_result,
+    };
+
     eprintln!(
-        "[EOS_PROBE] incomplete → {} continuation tokens: {:?}",
-        continuation_tokens.len(),
+        "[EOS_PROBE] incomplete → nudging; discarded reply: {:?}",
         &continuation_text[..continuation_text.len().min(80)]
     );
     log_info!(
         conversation_id,
-        "🔄 Inline EOS probe: incomplete — returning {} continuation tokens",
-        continuation_tokens.len()
+        "🔄 Inline EOS probe: incomplete — nudging continuation (probe reply discarded)"
     );
     llama_chat_db::event_log::log_event(
         conversation_id,
         "eos_intercept",
         &format!(
-            "inline probe continuation: {:?}",
+            "inline probe incomplete; discarded reply: {:?}",
             &continuation_text[..continuation_text.len().min(60)]
         ),
     );
 
     EosContinuationResult {
         is_complete: false,
-        continuation_text,
-        continuation_tokens,
+        continuation_text: nudge.to_string(),
+        continuation_tokens: nudge_tokens,
     }
 }
 pub fn quick_tool_result_check(
@@ -777,5 +799,45 @@ mod probe_verdict_tests {
             probe_verdict_word("</think>\n\nDONE\n", true).as_deref(),
             Some("DONE")
         );
+    }
+}
+
+#[cfg(test)]
+mod probe_leak_tests {
+    use super::{probe_verdict_word, verdict_is_complete, EOS_PROBE_TEXT};
+
+    /// Observed on the 27B in the desktop app: the model answered the probe by echoing it.
+    /// The reply opens with '[', which used to yield an empty word and no verdict at all.
+    #[test]
+    fn punctuation_led_reply_still_yields_a_verdict() {
+        let echoed = "[SELF-CHECK] Are you completely done with the task? Type DONE if yes,";
+        let w = probe_verdict_word(echoed, false).expect("a verdict word");
+        assert_eq!(w, "SELF");
+        assert!(!verdict_is_complete(&w));
+    }
+
+    /// The case that proved the parser was never the real problem (AGENT_TASKS/012):
+    /// to "hi" the model replied "</think>\n\nI'm", which parses correctly to "I" — a
+    /// perfectly good word that simply isn't a completion verdict. The leak happened
+    /// *after* this point, when the reply was returned as response content.
+    #[test]
+    fn greeting_continuation_parses_but_is_not_a_verdict() {
+        let w = probe_verdict_word("</think>\n\nI'm", false).expect("a verdict word");
+        assert_eq!(w, "I");
+        assert!(!verdict_is_complete(&w));
+    }
+
+    /// The probe question must never be mistaken for a completion verdict.
+    #[test]
+    fn probe_text_itself_is_not_a_completion_verdict() {
+        let w = probe_verdict_word(EOS_PROBE_TEXT, false).expect("a verdict word");
+        assert!(!verdict_is_complete(&w));
+    }
+
+    /// Guard the 002 behaviour: a thinking model's "DONE" is still recognised.
+    #[test]
+    fn thinking_model_done_still_recognised() {
+        let w = probe_verdict_word("</think>\n\nDONE", false).expect("a verdict word");
+        assert!(verdict_is_complete(&w));
     }
 }
