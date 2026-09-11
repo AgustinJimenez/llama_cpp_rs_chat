@@ -116,6 +116,33 @@ impl Drop for ProcessManager {
 }
 
 /// Spawn a worker child process using the current executable.
+/// Path of the worker stderr log, so callers and docs agree on one location.
+pub fn worker_log_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("logs").join("worker.stderr.log")
+}
+
+/// Open the worker stderr log in append mode, creating `logs/` if needed.
+/// Returns `None` on any failure so the caller can fall back to inheritance —
+/// losing logs must never prevent a worker from starting.
+fn worker_log_file() -> Option<std::fs::File> {
+    let path = worker_log_path();
+    if let Some(dir) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("[PROCESS_MGR] Cannot create worker log dir {}: {e}", dir.display());
+            return None;
+        }
+    }
+    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(f) => Some(f),
+        Err(e) => {
+            // Report it. The previous file-based attempt at this swallowed the error and
+            // produced an empty log that read as "this code never ran" (AGENT_TASKS/012).
+            eprintln!("[PROCESS_MGR] Cannot open worker log {}: {e}", path.display());
+            None
+        }
+    }
+}
+
 fn spawn_worker(db_path: &str) -> Result<Child, String> {
     let exe = std::env::current_exe().map_err(|e| format!("Cannot find own executable: {e}"))?;
 
@@ -126,8 +153,29 @@ fn spawn_worker(db_path: &str) -> Result<Child, String> {
         .arg("--db-path")
         .arg(db_path)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit()); // Worker logs go to parent's stderr
+        .stdout(Stdio::piped());
+
+    // Worker stderr goes to an explicit file handle, not `Stdio::inherit()`.
+    //
+    // Inheritance does not survive the ways this app is actually launched: under the Tauri
+    // desktop shell, a detached/background server, or `Start-Process` redirection, the
+    // worker's stderr reached nowhere. Only the parent's own startup lines showed up, so
+    // llama.cpp's loader output and every `eprintln!` in the engine were invisible — which
+    // blocked the AGENT_TASKS/012 investigation entirely and made a silent failure look
+    // like unreached code.
+    //
+    // Handing the child a real `File` (the pattern Atomic Chat uses for its `llama-server`
+    // subprocess, `src-tauri/src/core/agent/eval/server.rs`) does not depend on the parent
+    // having a usable stderr at all. Append mode so concurrent workers coexist and a
+    // restart does not discard the log that explains why the previous one died.
+    match worker_log_file() {
+        Some(f) => {
+            cmd.stderr(Stdio::from(f));
+        }
+        None => {
+            cmd.stderr(Stdio::inherit());
+        }
+    }
 
     // On Windows, prevent the worker from opening a visible console window
     #[cfg(windows)]

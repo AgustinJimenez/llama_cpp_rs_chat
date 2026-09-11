@@ -189,6 +189,41 @@ as the rest of this task: a mechanism that looks like it works and silently does
 channel that already demonstrably crosses the process boundary — the SSE stream itself
 (e.g. an extra field on the `done` event) or the IPC payload.
 
+### Observability SOLVED — and it disproves the probe theory for the 9B case
+
+Fixed by adopting the pattern Atomic Chat uses for its `llama-server` subprocess
+(`src-tauri/src/core/agent/eval/server.rs`): hand the child an explicit `File` handle
+rather than relying on `Stdio::inherit()`. `process_manager.rs` now writes worker stderr to
+`logs/worker.stderr.log`. Inheritance never survived how this app is actually launched
+(desktop shell, detached server, `Start-Process` redirection).
+
+With capture demonstrably working — the worker's five Rust `eprintln!` startup lines land in
+the file — a `hi` run that **did** leak produced **no `[EOS_PROBE]` line at all**.
+
+`[EOS_PROBE]` is itself an `eprintln!`, on the same fd, in the same process as the lines that
+did arrive. Its absence is therefore evidence, not a capture artefact:
+
+> **On Qwen3.5-9B, the EOS probe does not run, and the `</think>\n\nI'm` leak is NOT the
+> probe.** The fix committed earlier could never have addressed it.
+
+### Two phenomena were being conflated
+
+This task opened from a 27B screenshot showing literal `[SELF-CHECK] Are you completely done
+with the task? Type DONE if yes, or write your` — text that exists **only** in
+`EOS_PROBE_TEXT`, so that one is unambiguously our probe.
+
+The 9B reproduction shows `</think>\n\nI'm` with no `[SELF-CHECK]` anywhere and no probe
+execution. Across 11 scanned runs the `probe-prompt-leak` signature never fired once.
+
+So there are **two different defects** sharing one symptom shape, and the 9B one — the only
+one reproducible on demand — was the wrong target for a probe fix. Split them before
+continuing: the 27B `[SELF-CHECK]` leak needs a 27B reproduction with the new log in place;
+the 9B lump needs its actual sender identified.
+
+Still unexplained for the 9B case: the leak arrives as one SSE event with multi-token content
+and a non-advancing `tokens_used`, which matches the probe-continuation sender — but the
+probe never ran. Whatever emits it is elsewhere.
+
 ### Two false conclusions I drew along the way
 
 Recorded because both cost real time:
