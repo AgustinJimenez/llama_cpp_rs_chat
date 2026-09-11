@@ -1,6 +1,6 @@
 # 004 — Worker eviction doesn't fire, and orphaned workers leak VRAM that hard-unload can't reclaim
 
-Status: FIXED (both defects) — verified 2026-09-10, not yet committed
+Status: FIXED (both defects) — verified 2026-09-10, committed in `22a41a71`
 Found: 2026-09-10, while testing the Qwen 3.8 27B agent
 
 ## Outcome
