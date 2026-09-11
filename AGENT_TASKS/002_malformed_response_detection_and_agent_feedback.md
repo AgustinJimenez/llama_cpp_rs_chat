@@ -112,6 +112,41 @@ A full agentic turn (tool call → result → summary) also runs clean. Note tha
 legitimately contains **two** `</think>` tags as matched pairs — any future structural
 validator must count pairs, not occurrences, or it will flag correct output.
 
+## 2026-09-11 — measured data that invalidates two proposed detectors
+
+A 7-prompt leak-scan battery on Qwen3.5-9B produced the first real corpus to check the
+proposed defect taxonomy against. Two of the proposed signals would fire on **correct**
+output:
+
+**`UnclosedToolCall` would false-positive on every single tool call.** Observed shape for a
+successful call — the model opens `<tool_call>` and never closes it, because its dialect
+terminates with `</function>` and our injection follows immediately:
+
+```
+<tool_call>
+<function=list_directory>
+<parameter=path>
+E:\tmp_project
+</parameter>
+</function>
+<tool_response>
+[TOOL_RESULT:success]Directory listing: …
+</tool_response>
+```
+
+`<tool_call>`=1, `</tool_call>`=0 on a turn that worked perfectly. A detector keyed on
+`exec_open` without `exec_close` must therefore understand per-dialect terminators, or it
+will demand a "redo" of every correct tool call — an infinite corrective loop.
+
+**`</think>` counting must allow the prefill offset.** Because the first thinking block is
+prefilled, a correct turn has `</think>` == `<think>` + 1. The 45-tool-call Laravel run
+measured 45/46 while clean. Counting occurrences rather than balanced pairs flags correct
+output.
+
+Both confirm the doc's own warning that the backend must own validation — but also that the
+taxonomy needs to be derived from measured correct output, not from intuition about what
+"well-formed" looks like.
+
 ## Still open
 
 - **Defect 2 (M-RoPE rollback) is unfixed and unreproduced.** It stopped triggering because

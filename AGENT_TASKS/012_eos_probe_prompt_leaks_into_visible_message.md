@@ -51,6 +51,36 @@ assert!(probe_verdict_word(echoed, false).is_some());   // FAILS -> None
 The 20-token probe budget explains the truncation at "or write your" — the reply is cut off
 exactly where `max_probe_tokens` runs out.
 
+## 2026-09-11 update — the punctuation bug is NOT the main cause
+
+A 7-prompt battery on Qwen3.5-9B reproduced the leak on `hi` with a **different** reply
+shape, which corrects the analysis above. Raw stream, verbatim:
+
+```
+The user just said "hi" … I should respond warmly and offer to help.
+</think>
+
+Hello! How can I help you today?</think>
+
+I'm<|im_end|>
+```
+
+The probe reply was `</think>\n\nI'm` — the model simply continuing its greeting ("I'm here
+and ready to help…", which is exactly what the user's 27B screenshot shows).
+
+Here `probe_verdict_word` worked **perfectly**: markup stripped, first bare word `"I"`.
+`"I"` is not `DONE`/`Y`/`YES`, so the continuation path fired and injected the reply.
+
+So the punctuation hole is real but secondary. **Fixing it would not have prevented this
+case.** The defect is the design: *any* reply that is not an explicit completion verdict is
+treated as legitimate continuation and surfaced verbatim. Confirming the fix must be the
+fallback flip described below, not the parser patch.
+
+Also learned: the leak is **intermittent**. Of two trivial prompts, `hi` leaked and
+`What is 2+2?` did not — it depends entirely on what the model happens to say to a hidden
+question. Intermittent makes it worse, not better: it will not show up reliably in manual
+testing.
+
 ## The deeper design flaw — do not stop at the punctuation bug
 
 Patching `probe_verdict_word` to skip leading punctuation fixes *this* string. It does not
