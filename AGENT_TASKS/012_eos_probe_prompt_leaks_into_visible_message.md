@@ -224,6 +224,64 @@ Still unexplained for the 9B case: the leak arrives as one SSE event with multi-
 and a non-advancing `tokens_used`, which matches the probe-continuation sender — but the
 probe never ran. Whatever emits it is elsewhere.
 
+### RELIABLE REPRODUCTION FOUND — use this, not the old recipe
+
+```
+POST /api/agents/<27b-agent-id>/activate
+POST /api/chat/stream   {"message": "hi", "agent_id": "<27b-agent-id>"}
+```
+
+Output, matching the original screenshot exactly:
+
+> …Just tell me what you need and I'll dive in.**[SELF-CHECK] Are you completely done with
+> the task? Type DONE if yes, or write your**`<|im_end|>`
+
+**Why every earlier test missed it:** they passed only `worker_id`, never `agent_id`. The
+probe is gated on `is_agent_mode = !cfg.tags.exec_open.is_empty()`
+(`token_loop.rs:237`), and the tool tags come from the **agent**. Without an agent the tags
+are empty, the probe never runs, and a different symptom appears. *Reproduce through an
+activated agent or you are testing another code path.*
+
+### Retraction: the "probe does not run on the 9B" conclusion was WRONG
+
+It rested on `[EOS_PROBE]` being absent from `logs/worker.stderr.log`. The 27B run leaked
+the probe text — so the probe demonstrably ran — and produced **no log output either**.
+
+The worker log captures only the **startup** lines and nothing during generation. Absence of
+`[EOS_PROBE]` is therefore not evidence of anything. The likely cause is
+`worker_main/stdout.rs`, which does `_dup2(2, 1)` to keep native stdout off the IPC pipe;
+whatever it does to the descriptors, engine `eprintln!` output stops reaching the file after
+startup. **Do not treat a missing log line as proof again until that is understood.**
+
+### What the reproduction establishes
+
+Token-level events around the leak (27B run):
+
+```
+[149] tokens_used=8199 token=' in'
+[150] tokens_used=8200 token='.'
+[151] tokens_used=8200 token='[SELF-CHECK] Are you completely done with the task? Type DONE if yes, or write your'
+[152] tokens_used=8200 token='<|im_end|>'
+```
+
+A lump with a frozen counter — identical in shape to the 9B `</think>\n\nI'm` case. So both
+symptoms are **one** mechanism, not two, and the earlier "two phenomena" split above is
+wrong as well.
+
+The content is the model **echoing the probe question**, truncated at
+`max_probe_tokens = 20`. That is `inline_eos_probe`'s sampled reply, streamed by
+`token_loop.rs:265-273`.
+
+**The contradiction is now sharper, not resolved.** Only three sites construct
+`EosContinuationResult` (`sub_checks.rs:41`, `:150` — both in the callerless
+`check_eos_continuation`; `sub_checks.rs:243`/`:384` in `inline_eos_probe`;
+`token_loop.rs:249` for `force_continue`). Every live one now yields `"\n\n"`, and the
+binary is verified to contain the new strings and none of the old. Yet the echo is what
+reaches the stream.
+
+Next: instrument by a route that *does* cross the boundary — put the probe outcome in the
+SSE `done` event — and re-run the recipe above.
+
 ### Two false conclusions I drew along the way
 
 Recorded because both cost real time:

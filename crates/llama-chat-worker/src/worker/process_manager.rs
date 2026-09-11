@@ -132,7 +132,17 @@ fn worker_log_file() -> Option<std::fs::File> {
             return None;
         }
     }
-    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    // Windows: without an explicit share mode the child holds the file exclusively and
+    // nothing can read it while a worker is alive — which defeats the point of a log.
+    // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE = 0x7.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.share_mode(0x7);
+    }
+    match opts.open(&path) {
         Ok(f) => Some(f),
         Err(e) => {
             // Report it. The previous file-based attempt at this swallowed the error and
