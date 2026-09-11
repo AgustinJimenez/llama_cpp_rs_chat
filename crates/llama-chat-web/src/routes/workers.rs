@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_response};
 use crate::worker_pool::{
-    remove_worker_and_rebind_conversations, WorkerEntry, WorkerPool,
+    remove_worker_and_rebind_conversations, vram_estimate, WorkerEntry, WorkerPool,
 };
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::ModelLoadRequest;
@@ -23,11 +23,20 @@ struct WorkerSummary {
     model_path: Option<String>,
     general_name: Option<String>,
     context_size: Option<u32>,
+    /// Estimated VRAM held by this worker's model, in GB (0 when nothing is loaded).
+    ///
+    /// Computed with the same `vram_estimate` the evictor uses, so the load modal's
+    /// "other models are using N GB" warning and the eviction decision can never
+    /// disagree — a mismatch there is what made AGENT_TASKS/003 invisible.
+    vram_gb: f64,
 }
 
 #[derive(Serialize)]
 struct WorkersResponse {
     workers: Vec<WorkerSummary>,
+    /// Max concurrently loaded models (AGENT_TASKS/005) and how many are in use.
+    slot_cap: usize,
+    slots_used: usize,
 }
 
 #[derive(Serialize)]
@@ -58,6 +67,10 @@ async fn summarize_worker(entry: WorkerEntry) -> WorkerSummary {
     let model_path = meta.as_ref().map(|m| m.model_path.clone());
     let general_name = meta.as_ref().and_then(|m| m.general_name.clone());
     let context_size = meta.as_ref().and_then(|m| m.context_length);
+    let vram_gb = meta
+        .as_ref()
+        .map(|m| bytes_to_gb(vram_estimate(m)))
+        .unwrap_or(0.0);
 
     WorkerSummary {
         id: entry.id,
@@ -69,7 +82,14 @@ async fn summarize_worker(entry: WorkerEntry) -> WorkerSummary {
         model_path,
         general_name,
         context_size,
+        vram_gb,
     }
+}
+
+fn bytes_to_gb(bytes: u64) -> f64 {
+    #[allow(clippy::cast_precision_loss)] // GB-scale display value; f64 is exact to 2^53
+    let gb = bytes as f64 / 1_073_741_824.0;
+    gb
 }
 
 pub async fn handle_list_workers(
@@ -81,9 +101,14 @@ pub async fn handle_list_workers(
     }
 
     summaries.sort_by(|a, b| a.id.cmp(&b.id));
+    let (slot_cap, occupants) = pool.slot_report().await;
     Ok(json_response(
         StatusCode::OK,
-        &WorkersResponse { workers: summaries },
+        &WorkersResponse {
+            workers: summaries,
+            slot_cap,
+            slots_used: occupants.len(),
+        },
     ))
 }
 

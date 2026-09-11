@@ -65,10 +65,15 @@ export interface WorkerSummary {
   model_path?: string | null;
   general_name?: string | null;
   context_size?: number | null;
+  /** Estimated VRAM held by this worker's model, in GB. 0 when nothing is loaded. */
+  vram_gb?: number;
 }
 
 export interface WorkersResponse {
   workers: WorkerSummary[];
+  /** Max concurrently loaded models, and how many slots are occupied. */
+  slot_cap?: number;
+  slots_used?: number;
 }
 
 export interface SystemUsageData {
@@ -380,7 +385,7 @@ function assertWebWorkersAvailable(): void {
   }
 }
 
-async function listWorkers(): Promise<WorkersResponse> {
+export async function listWorkers(): Promise<WorkersResponse> {
   assertWebWorkersAvailable();
   return fetchJson<WorkersResponse>('/api/workers');
 }

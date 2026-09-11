@@ -165,6 +165,13 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE config ADD COLUMN loop_detection_limit INTEGER DEFAULT 15",
         [],
     );
+    // Hard cap on how many models may be resident (loaded) at the same time.
+    // See AGENT_TASKS/005: the size-based eviction heuristic silently let a 9B and a
+    // 27B co-reside and starve a 24 GB GPU, so the count is a rule the user owns.
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN max_loaded_models INTEGER DEFAULT 2",
+        [],
+    );
 
     // Active provider preference (persisted so API clients can query it)
     let _ = conn.execute(

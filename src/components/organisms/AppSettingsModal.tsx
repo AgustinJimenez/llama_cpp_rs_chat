@@ -218,6 +218,36 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 />
               </div>
 
+              {/* Max concurrently loaded models (slot cap) — see AGENT_TASKS/005 */}
+              <div className="space-y-2">
+                <label htmlFor="max-loaded-models" className="text-sm font-medium text-foreground">
+                  {t('appSettings.maxLoadedModels')}
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  {t('appSettings.maxLoadedModelsDescription')}
+                </p>
+                <input
+                  id="max-loaded-models"
+                  type="number"
+                  min={1}
+                  max={8}
+                  className="w-32 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
+                  // eslint-disable-next-line @typescript-eslint/no-magic-numbers
+                  value={localConfig?.max_loaded_models ?? 2}
+                  onChange={(e) =>
+                    setLocalConfig((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            // eslint-disable-next-line @typescript-eslint/no-magic-numbers
+                            max_loaded_models: Math.max(1, parseInt(e.target.value, 10) || 2),
+                          }
+                        : prev,
+                    )
+                  }
+                />
+              </div>
+
               {/* Web browsing uses the built-in Tauri WebView — no external
                   browser or API key configuration needed. */}
             </div>

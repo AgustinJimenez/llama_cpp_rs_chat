@@ -122,6 +122,8 @@ export interface SamplerConfig {
   max_tool_calls?: number;
   // Loop detection: max consecutive identical tool calls before stopping
   loop_detection_limit?: number;
+  // Hard cap on concurrently loaded models (slots). See AGENT_TASKS/005.
+  max_loaded_models?: number;
   // Thinking mode: undefined/null = use model default (enabled when supported), false = disabled
   thinking_mode?: boolean | null;
 }

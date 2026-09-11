@@ -69,6 +69,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         provider_api_keys: db_config.provider_api_keys.clone(),
         max_tool_calls: db_config.max_tool_calls,
         loop_detection_limit: db_config.loop_detection_limit,
+        max_loaded_models: db_config.max_loaded_models,
         thinking_mode: db_config.thinking_mode,
     }
 }
@@ -135,6 +136,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         provider_api_keys: config.provider_api_keys.clone(),
         max_tool_calls: config.max_tool_calls,
         loop_detection_limit: config.loop_detection_limit,
+        max_loaded_models: config.max_loaded_models,
         thinking_mode: config.thinking_mode,
     }
 }

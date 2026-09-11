@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS config (
     provider_api_keys TEXT,
     max_tool_calls INTEGER DEFAULT 2000,
     loop_detection_limit INTEGER DEFAULT 15,
+    max_loaded_models INTEGER DEFAULT 2,
     active_provider TEXT DEFAULT 'local',
     active_provider_model TEXT,
     updated_at INTEGER NOT NULL

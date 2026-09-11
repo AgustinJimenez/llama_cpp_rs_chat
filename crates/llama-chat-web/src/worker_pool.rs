@@ -36,11 +36,53 @@ use llama_chat_worker::worker::worker_bridge::{SharedWorkerBridge, WorkerBridge}
 
 pub type WorkerId = String;
 
+/// One resident model, for the slot-occupancy UI.
+#[derive(Clone, serde::Serialize)]
+pub struct SlotOccupant {
+    pub worker_id: WorkerId,
+    pub model_path: String,
+    pub general_name: Option<String>,
+    pub vram_bytes: u64,
+    pub generating: bool,
+    pub last_used_secs: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct WorkerEntry {
     pub id: WorkerId,
     pub bridge: SharedWorkerBridge,
     pub created_at: SystemTime,
+    /// Last time this worker was handed out by `get()`. Shared handle so the
+    /// timestamp survives the `clone()` that `list_entries()` performs — the slot
+    /// cap evicts the least-recently-*used* worker, and `created_at` alone would
+    /// instead evict whichever agent the user activated first, which is usually
+    /// the one they are actively working with.
+    pub last_used: Arc<RwLock<SystemTime>>,
+}
+
+impl WorkerEntry {
+    fn new(id: WorkerId, bridge: SharedWorkerBridge) -> Self {
+        let now = SystemTime::now();
+        Self {
+            id,
+            bridge,
+            created_at: now,
+            last_used: Arc::new(RwLock::new(now)),
+        }
+    }
+
+    fn touch(&self) {
+        if let Ok(mut t) = self.last_used.write() {
+            *t = SystemTime::now();
+        }
+    }
+
+    pub fn last_used_at(&self) -> SystemTime {
+        self.last_used
+            .read()
+            .map(|t| *t)
+            .unwrap_or(self.created_at)
+    }
 }
 
 #[derive(Clone)]
@@ -60,11 +102,7 @@ impl WorkerPool {
         let mut workers = HashMap::new();
         workers.insert(
             "default".to_string(),
-            WorkerEntry {
-                id: "default".to_string(),
-                bridge: default_bridge,
-                created_at: SystemTime::now(),
-            },
+            WorkerEntry::new("default".to_string(), default_bridge),
         );
 
         Self {
@@ -77,10 +115,12 @@ impl WorkerPool {
     }
 
     pub fn get(&self, worker_id: &str) -> Option<SharedWorkerBridge> {
-        self.workers
-            .read()
-            .ok()
-            .and_then(|workers| workers.get(worker_id).map(|entry| entry.bridge.clone()))
+        self.workers.read().ok().and_then(|workers| {
+            workers.get(worker_id).map(|entry| {
+                entry.touch(); // feeds the slot cap's LRU eviction order
+                entry.bridge.clone()
+            })
+        })
     }
 
     pub fn get_or_default(&self, worker_id: Option<&str>) -> Option<SharedWorkerBridge> {
@@ -115,6 +155,8 @@ impl WorkerPool {
         mmproj_path: Option<String>,
         agent_id: Option<String>,
     ) -> Result<WorkerId, String> {
+        // Hard slot cap first (deterministic), then the size heuristic.
+        self.enforce_slot_cap(None).await?;
         // Free unified/GPU memory first if the machine can't hold this model alongside
         // the ones already resident (e.g. a 16GB Mac can't keep two ~6.4GB copies — that
         // OOMs the Metal backend as "Decode Error -3"). On a high-RAM box this is a no-op.
@@ -130,11 +172,7 @@ impl WorkerPool {
             return Err(e);
         }
 
-        let entry = WorkerEntry {
-            id: worker_id.clone(),
-            bridge,
-            created_at: SystemTime::now(),
-        };
+        let entry = WorkerEntry::new(worker_id.clone(), bridge);
 
         self.workers
             .write()
@@ -142,6 +180,128 @@ impl WorkerPool {
             .insert(worker_id.clone(), entry);
 
         Ok(worker_id)
+    }
+
+    // ─── Slot cap (max concurrently loaded models) ─────────────────────────────
+
+    /// How many models may be resident at once, from app config. Clamped to >= 1 so a
+    /// corrupt or zero value can never deadlock every load path.
+    ///
+    /// The DB default is 2, not 1: a cap of 1 would disable the per-conversation overflow
+    /// worker path (parallel inference on small models) for everyone. Two 9B models fit a
+    /// 24 GB card comfortably; it is two *large* models that starve it, and the VRAM fit
+    /// check — not the count — is what catches that case.
+    fn slot_cap(&self) -> usize {
+        let configured = self.db.load_config().max_loaded_models;
+        usize::try_from(configured.max(1)).unwrap_or(1)
+    }
+
+    /// Workers that currently hold (or are loading) a model, newest-used first.
+    /// `loading` counts as occupying a slot — otherwise two concurrent activations
+    /// would both see a free slot and both load, which is the exact over-subscription
+    /// the cap exists to prevent.
+    async fn occupied_slots(&self) -> Vec<(WorkerEntry, bool)> {
+        let mut occupied = Vec::new();
+        for entry in self.list_entries() {
+            let loaded = entry.bridge.model_status().await.is_some();
+            if !loaded && !entry.bridge.is_loading() {
+                continue;
+            }
+            let generating = entry.bridge.is_generating().await;
+            occupied.push((entry, generating));
+        }
+        occupied.sort_by_key(|(e, _)| std::cmp::Reverse(e.last_used_at()));
+        occupied
+    }
+
+    /// Public snapshot of slot usage for the UI: (cap, occupants).
+    /// Each occupant is (worker_id, model_path, general_name, vram_bytes, generating).
+    pub async fn slot_report(&self) -> (usize, Vec<SlotOccupant>) {
+        let cap = self.slot_cap();
+        let mut occupants = Vec::new();
+        for entry in self.list_entries() {
+            let Some(meta) = entry.bridge.model_status().await else {
+                continue;
+            };
+            occupants.push(SlotOccupant {
+                worker_id: entry.id.clone(),
+                model_path: meta.model_path.clone(),
+                general_name: meta.general_name.clone(),
+                vram_bytes: vram_estimate(&meta),
+                generating: entry.bridge.is_generating().await,
+                last_used_secs: entry
+                    .last_used_at()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_secs()),
+            });
+        }
+        (cap, occupants)
+    }
+
+    /// Enforce the slot cap before a new model is loaded: evict least-recently-used
+    /// **idle** models until a slot is free.
+    ///
+    /// This is the deterministic half of the guard. `evict_to_fit` is a size heuristic —
+    /// it keeps models resident whenever they appear to fit, and when its estimate is
+    /// wrong the failure mode is a GPU that silently pages to RAM and decodes at ~0 tok/s
+    /// (see AGENT_TASKS/003, 004). The cap is a hard rule the user sets, so the common
+    /// single-GPU case stops depending on an estimate being right.
+    ///
+    /// `keep_id` is never evicted and does not consume a slot — its model is being
+    /// replaced by the incoming one anyway.
+    ///
+    /// Returns `Err` when every occupied slot is mid-generation: evicting one of those
+    /// would truncate a live response (the failure class AGENT_TASKS/001 is about), so we
+    /// refuse the load with a message the caller can surface instead.
+    async fn enforce_slot_cap(&self, keep_id: Option<&str>) -> Result<(), String> {
+        let cap = self.slot_cap();
+        // Bounded, not `loop`: every iteration must strictly reduce the occupant count,
+        // but that depends on the eviction actually succeeding. If one ever fails (a
+        // poisoned lock, a kill that doesn't take), an unbounded loop would spin forever
+        // holding up a user-triggered load — a hang, which is the single worst failure
+        // mode in this codebase. One pass per possible occupant plus slack is ample.
+        let max_rounds = self.list_entries().len().saturating_add(2);
+        for _ in 0..max_rounds {
+            let occupied: Vec<(WorkerEntry, bool)> = self
+                .occupied_slots()
+                .await
+                .into_iter()
+                .filter(|(e, _)| keep_id != Some(e.id.as_str()))
+                .collect();
+
+            // A slot is free once the incoming model can be counted in (occupied + 1 <= cap).
+            if occupied.len() < cap {
+                return Ok(());
+            }
+
+            // Evict the least-recently-used idle occupant (list is newest-first).
+            let victim = occupied
+                .iter()
+                .rev()
+                .find(|(_, generating)| !generating)
+                .map(|(e, _)| e.id.clone());
+
+            let Some(victim_id) = victim else {
+                return Err(format!(
+                    "All {cap} model slot(s) are busy generating. Wait for a response to \
+                     finish, or raise \"max loaded models\" in Settings."
+                ));
+            };
+
+            if victim_id == "default" {
+                if let Some(bridge) = self.get("default") {
+                    let _ = bridge.unload_model().await;
+                }
+            } else {
+                self.evict_named_worker(&victim_id).await;
+            }
+        }
+
+        // Ran out of rounds without freeing a slot. Let the load proceed rather than
+        // blocking it: `evict_to_fit` still guards VRAM, and refusing here would turn a
+        // bookkeeping problem into a user-visible failure to load anything at all.
+        Ok(())
     }
 
     /// In-memory half only — removes the worker entry from the pool and kills the process.
@@ -181,6 +341,11 @@ impl WorkerPool {
     /// loaded workers if the incoming model won't fit alongside them; `keep_worker_id`
     /// is never evicted and its (about-to-be-replaced) model is excluded from the budget.
     pub async fn free_memory_for_load(&self, new_model_path: &str, keep_worker_id: &str) {
+        // Slot cap applies here too, but this path has no error channel back to the
+        // caller — a busy-slot refusal would have to abort a load the user already
+        // triggered. Evicting what we can and continuing matches the previous
+        // behaviour; the fit check below still guards VRAM.
+        let _ = self.enforce_slot_cap(Some(keep_worker_id)).await;
         self.evict_to_fit(model_file_size(new_model_path), Some(keep_worker_id))
             .await;
     }
@@ -447,6 +612,10 @@ impl WorkerPool {
         // Generate the worker_id here so we can bind agent→worker before load_model
         // starts. This lets list_agent_statuses report loading_progress via polling
         // while the (slow) model load is in flight.
+        //
+        // The reuse scan above already returned for an agent whose model is resident, so
+        // reaching here means a genuinely new model — it must claim a slot.
+        self.enforce_slot_cap(None).await?;
         self.evict_idle_workers_if_memory_tight(model_path).await;
 
         let suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -456,11 +625,7 @@ impl WorkerPool {
         let bridge = Arc::new(WorkerBridge::new(pm, self.db.clone()));
 
         // Register in pool and bind agent BEFORE loading so polling can observe progress.
-        let entry = WorkerEntry {
-            id: worker_id.clone(),
-            bridge: bridge.clone(),
-            created_at: SystemTime::now(),
-        };
+        let entry = WorkerEntry::new(worker_id.clone(), bridge.clone());
         self.workers
             .write()
             .map_err(|_| "WorkerPool lock poisoned".to_string())?
@@ -827,7 +992,7 @@ fn total_gpu_vram_bytes() -> u64 {
 /// doesn't count against the VRAM budget and a partially-offloaded one counts
 /// proportionally. Falls back to the full file size when layer counts are unknown
 /// (conservative). Mirrors the modal's memory visualization math.
-fn vram_estimate(meta: &llama_chat_worker::ModelMeta) -> u64 {
+pub fn vram_estimate(meta: &llama_chat_worker::ModelMeta) -> u64 {
     let file_size = model_file_size(&meta.model_path);
     match (meta.gpu_layers, meta.block_count) {
         (Some(gl), Some(bc)) if bc > 0 => {

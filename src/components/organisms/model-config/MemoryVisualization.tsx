@@ -13,6 +13,10 @@ export interface MemoryBreakdown {
     overhead: number;
     available: number;
     overcommitted: boolean;
+    /** VRAM held by models loaded in other workers (GB). */
+    otherModels: number;
+    /** Fits the card alone, but not alongside the models already resident. */
+    contended: boolean;
   };
   ram: {
     total: number;
@@ -47,6 +51,10 @@ const TOKENS_PER_MEGA = 1048576;
 const UTILIZATION_CRITICAL_PCT = 90;
 const UTILIZATION_WARNING_PCT = 75;
 const UTILIZATION_HIGH_PCT = 85;
+/** Below this, "other models" is rounding noise (an idle worker's stray allocation). */
+const OTHER_MODELS_NOTICE_GB = 0.1;
+/** Offering a context smaller than this is not a real remedy — unloading is. */
+const MIN_USABLE_CONTEXT = 4096;
 
 function sliderToContext(t: number, min: number, max: number): number {
   const value = min + t * (max - min);
@@ -594,17 +602,115 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
 
 // --- Warnings ---
 
-const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
+/**
+ * "Won't fit alongside what's already loaded" — the warning AGENT_TASKS/003 is about.
+ *
+ * The plain `overcommitted` check compares against *total* VRAM, so it stayed silent in
+ * the failing case: ~20.4 GB projected against a 22.5 GB card looks fine, but another
+ * agent was holding ~7 GB, so the load really did not fit. CUDA does not error on that —
+ * it pages to RAM and decode collapses to roughly zero tokens/sec, which reaches the user
+ * as a chat that hangs forever. So this names the numbers and offers the way out.
+ */
+const ContentionWarning: React.FC<{
+  memory: MemoryBreakdown;
+  contextSize: number;
+  onContextSizeChange: (size: number) => void;
+}> = ({ memory, contextSize, onContextSizeChange }) => {
+  const { t } = useTranslation();
+  const { vram } = memory;
+  const projected = vram.modelGpu + vram.kvCache + vram.overhead;
+  // Largest context that fits in what is actually free. KV cache is linear in context,
+  // so the current (context, kvCache) pair gives the per-token cost directly.
+  //
+  // Deliberately NOT `useVramOptimizer.optimalContextSize`: that budgets against the
+  // card's *total* VRAM, so under contention it recommends a value that does not fit
+  // either — a button that looks like the fix and changes nothing, which is the same
+  // dead-safety-net shape as the bug this warning exists to catch.
+  const fittingContext = (() => {
+    if (vram.kvCache <= 0 || contextSize <= 0) return 0;
+    const budget = vram.total - vram.otherModels - vram.modelGpu - vram.overhead;
+    if (budget <= 0) return 0;
+    const perToken = vram.kvCache / contextSize;
+    const raw = Math.floor(budget / perToken);
+    return Math.floor(raw / CONTEXT_ROUND_STEP) * CONTEXT_ROUND_STEP;
+  })();
+  const showRecommend = fittingContext >= MIN_USABLE_CONTEXT && fittingContext < contextSize;
+
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-red-600 bg-red-900/20 p-3">
+      <AlertTriangle className="mt-0.5 size-5 flex-shrink-0 text-red-600" />
+      <div className="space-y-1 text-sm text-red-600 dark:text-red-400">
+        <p className="font-semibold">{t('memoryVisualization.wontFitTitle')}</p>
+        <p className="text-xs">
+          {t('memoryVisualization.wontFitDetail', {
+            projected: projected.toFixed(1),
+            other: vram.otherModels.toFixed(1),
+            sum: (projected + vram.otherModels).toFixed(1),
+            total: vram.total.toFixed(1),
+            kv: vram.kvCache.toFixed(1),
+          })}
+        </p>
+        <p className="text-xs">{t('memoryVisualization.wontFitConsequence')}</p>
+        {!!showRecommend && (
+          <button
+            type="button"
+            onClick={() => onContextSizeChange(fittingContext)}
+            className="mt-1 rounded border border-red-600 px-2 py-0.5 text-xs font-medium transition-colors hover:bg-red-600/20"
+          >
+            {t('memoryVisualization.useRecommendedContext', {
+              value: formatSize(fittingContext),
+            })}
+          </button>
+        )}
+        {!showRecommend && (
+          <p className="text-xs italic">{t('memoryVisualization.noContextFits')}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** Softer notice: other models are resident but everything still fits. */
+const ContentionNotice: React.FC<{ otherModels: number }> = ({ otherModels }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-600 bg-amber-900/20 p-3">
+      <Info className="mt-0.5 size-5 flex-shrink-0 text-amber-600" />
+      <p className="text-xs text-amber-600 dark:text-amber-400">
+        {t('memoryVisualization.otherModelsResident', { size: otherModels.toFixed(1) })}
+      </p>
+    </div>
+  );
+};
+
+const MemoryWarnings: React.FC<{
+  memory: MemoryBreakdown;
+  contextSize: number;
+  onContextSizeChange: (size: number) => void;
+}> = ({ memory, contextSize, onContextSizeChange }) => {
   const { t } = useTranslation();
   const vramUsed = memory.vram.modelGpu + memory.vram.kvCache + memory.vram.overhead;
   // Avoid Infinity% on machines with no GPU (vram.total === 0). The VramBar
   // already renders a "No GPU detected" placeholder in that case, so we just
   // suppress the high-utilization warning here.
   const vramUtilization = memory.vram.total > 0 ? (vramUsed / memory.vram.total) * 100 : 0;
+  const hardOvercommit = memory.vram.overcommitted || memory.ram.overcommitted;
 
   return (
     <>
-      {!!(memory.vram.overcommitted || memory.ram.overcommitted) && (
+      {!hardOvercommit && !!memory.vram.contended && (
+        <ContentionWarning
+          memory={memory}
+          contextSize={contextSize}
+          onContextSizeChange={onContextSizeChange}
+        />
+      )}
+      {!hardOvercommit &&
+        !memory.vram.contended &&
+        memory.vram.otherModels > OTHER_MODELS_NOTICE_GB && (
+        <ContentionNotice otherModels={memory.vram.otherModels} />
+      )}
+      {!!hardOvercommit && (
         <div className="flex items-start gap-2 rounded-md border border-red-600 bg-red-900/20 p-3">
           <AlertTriangle className="mt-0.5 size-5 flex-shrink-0 text-red-600" />
           <div className="text-sm text-red-600 dark:text-red-400">
@@ -618,8 +724,8 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
           </div>
         </div>
       )}
-      {!memory.vram.overcommitted &&
-        !memory.ram.overcommitted &&
+      {!hardOvercommit &&
+        !memory.vram.contended &&
         vramUtilization > UTILIZATION_HIGH_PCT && (
           <div className="flex items-start gap-2 rounded-md border border-yellow-600 bg-yellow-900/20 p-3">
             <Info className="mt-0.5 size-5 flex-shrink-0 text-yellow-600" />
@@ -673,7 +779,11 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
           systemPromptTokens={systemPromptTokens}
           toolDefinitionsTokens={toolDefinitionsTokens}
         />
-        <MemoryWarnings memory={memory} />
+        <MemoryWarnings
+          memory={memory}
+          contextSize={contextSize}
+          onContextSizeChange={onContextSizeChange}
+        />
       </CardContent>
     </Card>
   );

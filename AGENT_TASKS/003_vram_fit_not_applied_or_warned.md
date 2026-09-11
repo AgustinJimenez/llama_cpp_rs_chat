@@ -1,9 +1,53 @@
 # 003 — VRAM fit is calculated, then discarded; user never warned when a config won't fit
 
-Status: PARTIAL — (a) and (b) fixed 2026-09-10; (c) the warning still open
+Status: FIXED — (a) and (b) 2026-09-10; (c) the warning 2026-09-11
 Found: 2026-09-10, while testing the Qwen 3.8 27B agent after the llama-cpp-rs v0.1.157 upgrade
 
-## Progress
+## Resolution of (c) — 2026-09-11
+
+The warning now exists and was verified firing against the original scenario.
+
+**Where the free-VRAM number comes from.** `/api/workers` now returns a `vram_gb` per
+worker, computed by the *same* `vram_estimate()` the evictor uses (`worker_pool.rs`). This
+was deliberate: had the modal used its own estimate, the warning and the eviction could
+disagree, which is the exact shape of the bug this task is about. `useResidentModelsVram`
+(new hook) polls that endpoint and sums the workers whose model differs from the one being
+configured.
+
+**The pessimism problem named in the original notes is handled by exclusion, not by
+subtraction.** The model currently being reconfigured is filtered out by filename, so
+reloading the resident model — the most common path — never triggers the warning.
+
+**Three states**, in `MemoryVisualization.tsx`:
+- `overcommitted` (unchanged): projected > *total* VRAM. Hard red.
+- `contended` (new): fits alone, but projected + other residents > total. Red, names the
+  numbers, and offers a remedy.
+- a softer amber notice when other models are resident but everything still fits.
+
+**The "use recommended" button does NOT use `optimalContextSize`.** That was the first
+implementation and it was wrong in the only case that matters: `useVramOptimizer` budgets
+against *total* VRAM, so under contention it recommended 256K — a value that does not fit
+either. Clicking it would have changed nothing. That is the same dead-safety-net shape as
+the original bug, so the button now solves for the largest context that fits the *remaining*
+VRAM directly (KV cache is linear in context, so the current `(contextSize, kvCache)` pair
+gives the per-token cost). When even a small context won't fit, it says so and points at
+unloading instead of offering a fake fix.
+
+**Verified live** with the 9B resident (8.9 GB) and the 27B agent open at ctx 262144:
+
+> Won't fit alongside the models already loaded
+> This config needs 21.4 GB (of which 4.8 GB is KV cache). Other loaded models are holding
+> 8.9 GB, for 30.3 GB against 22.5 GB of VRAM.
+> CUDA will not error — it pages to system RAM and generation slows to roughly zero
+> tokens/sec. Unload the other model, or reduce the context size.
+> *No usable context size fits in the VRAM left over. Unload another model, or reduce GPU layers.*
+
+Before this change that same screen showed no warning at all.
+
+**Still open:** the `Qwen 3.8 27B` agent remains stored at `context_size = 262144`. The
+warning now makes that visible when the agent is edited, but nothing migrates it.
+
+## Progress (historical — (a) and (b))
 
 **Done — (a) + (b): the optimizer's context is now applied.**
 `model-config/index.tsx` no longer takes the GGUF `context_length` as a default. The

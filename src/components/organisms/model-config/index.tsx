@@ -27,6 +27,7 @@ import { useModelContext } from '@/contexts/ModelContext';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useResidentModelsVram } from '@/hooks/useResidentModelsVram';
 import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import type { SamplerConfig } from '@/types';
 import { pickFile, getModelHistory, getConfig } from '@/utils/tauriCommands';
@@ -144,6 +145,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     maxContextSize,
   });
 
+  // Live VRAM held by other resident models — without this the fit check budgets
+  // against total VRAM and stays silent when another agent is already holding it.
+  const { otherModelsVramGb } = useResidentModelsVram(isOpen, modelPath);
+
   // Calculate memory breakdown in real-time
   const memoryBreakdown = useMemoryCalculation({
     modelMetadata: modelInfo,
@@ -154,6 +159,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     overheadGb,
     cacheTypeK: config.cache_type_k || resolvedPreset.cache_type_k || 'turbo2',
     cacheTypeV: config.cache_type_v || resolvedPreset.cache_type_v || 'turbo2',
+    otherModelsVramGb,
   });
 
   // Initialize model path from config when modal opens

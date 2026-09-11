@@ -143,6 +143,8 @@ impl AgentRecord {
             provider_api_keys: global.provider_api_keys.clone(),
             max_tool_calls: global.max_tool_calls,
             loop_detection_limit: global.loop_detection_limit,
+            // App-wide resource cap, not a per-agent setting — always the global value.
+            max_loaded_models: global.max_loaded_models,
             model_history: Vec::new(),
         }
     }
