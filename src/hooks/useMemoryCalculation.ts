@@ -21,6 +21,16 @@ interface MemoryCalculationParams {
   overheadGb?: number;
   cacheTypeK?: string;
   cacheTypeV?: string;
+  /**
+   * VRAM already held by models loaded in OTHER workers, in GB.
+   *
+   * `availableVramGb` is the card's *total*, so a config can look comfortable
+   * (20.4 of 22.5 GB) while genuinely not fitting because another agent is holding
+   * 7 GB. That is exactly how AGENT_TASKS/003 presented: no error, no warning, just a
+   * chat that hung because CUDA silently paged the KV cache to RAM. Excludes the
+   * model being configured — reloading it releases its own VRAM first.
+   */
+  otherModelsVramGb?: number;
 }
 
 interface ArchitectureParams {
@@ -149,6 +159,8 @@ const EMPTY_BREAKDOWN = (vramGb: number, ramGb: number): MemoryBreakdown => ({
     overhead: vramGb > 0 ? DEFAULT_OVERHEAD_GB : 0,
     available: Math.max(0, vramGb - (vramGb > 0 ? DEFAULT_OVERHEAD_GB : 0)),
     overcommitted: false,
+    otherModels: 0,
+    contended: false,
   },
   ram: {
     total: ramGb,
@@ -172,6 +184,7 @@ export function useMemoryCalculation({
   overheadGb = DEFAULT_OVERHEAD_GB,
   cacheTypeK = 'f16',
   cacheTypeV = 'f16',
+  otherModelsVramGb = 0,
 }: MemoryCalculationParams): MemoryBreakdown {
   return useMemo(() => {
     if (!modelMetadata) {
@@ -237,6 +250,15 @@ export function useMemoryCalculation({
         // Don't flag overcommitment when there's no GPU at all (total=0):
         // CPU-only is a valid configuration, not an error.
         overcommitted: availableVramGb > 0 && vramUsed > availableVramGb,
+        otherModels: otherModelsVramGb,
+        // This config fits the card on its own, but not alongside what is already
+        // resident. Reported separately from `overcommitted` so the UI can name the
+        // actual cause ("another agent is holding 7 GB") instead of blaming the
+        // context size the user just picked.
+        contended:
+          availableVramGb > 0 &&
+          otherModelsVramGb > 0 &&
+          vramUsed + otherModelsVramGb > availableVramGb,
       },
       ram: {
         total: availableRamGb,
@@ -255,5 +277,6 @@ export function useMemoryCalculation({
     overheadGb,
     cacheTypeK,
     cacheTypeV,
+    otherModelsVramGb,
   ]);
 }

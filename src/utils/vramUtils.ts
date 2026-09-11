@@ -14,9 +14,22 @@ const DEFAULT_TOTAL_LAYERS = 48;
 const CACHE_BYTES_Q4 = 0.5625; // 4.5 bits = 0.5625 bytes (4-bit + 0.5-bit scale overhead)
 const CACHE_BYTES_Q5 = 0.6875; // 5.5 bits
 const CACHE_BYTES_Q8 = 1.0625; // 8.5 bits (8-bit + 0.5-bit scale)
-const CACHE_BYTES_TURBO4 = 0.53; // ~3.8x compression vs f16
-const CACHE_BYTES_TURBO3 = 0.41; // ~4.9x compression vs f16
-const CACHE_BYTES_TURBO2 = 0.3125; // ~6.4x compression vs f16
+// TurboQuant is NOT currently active: parse_kv_cache_type() in
+// crates/llama-chat-engine/src/context_eval.rs maps turbo2/turbo3/turbo4 -> Q4_0, because
+// the custom TURBO GGML type IDs (42-44) no longer exist in current llama.cpp and using
+// them crashed with an out-of-bounds access in ggml_blck_size().
+//
+// These constants must describe what the backend ACTUALLY allocates, not what real
+// TurboQuant would cost. They previously held the true TQ ratios (0.3125 / 0.41 / 0.53),
+// which under-counted KV cache by ~1.8x — the 27B at 262144 ctx was estimated at ~2.9 GB
+// while llama.cpp really allocated 4.6 GB. useVramOptimizer consumes these values, so the
+// error also inflated optimalContextSize for every turbo-configured model.
+//
+// If real TurboQuant is ever restored, revert these to the ratios above and update
+// parse_kv_cache_type() in the same change — the two must stay in agreement.
+const CACHE_BYTES_TURBO4 = CACHE_BYTES_Q4; // aliased to Q4_0 by the backend
+const CACHE_BYTES_TURBO3 = CACHE_BYTES_Q4; // aliased to Q4_0 by the backend
+const CACHE_BYTES_TURBO2 = CACHE_BYTES_Q4; // aliased to Q4_0 by the backend
 
 export function getKvCacheLayers(meta: ModelMetadata): number {
   const totalLayers =

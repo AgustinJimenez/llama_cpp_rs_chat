@@ -32,6 +32,7 @@ export const GitGraphView: React.FC = () => {
   const [stagingDiffKind, setStagingDiffKind] = useState<'working' | 'staged'>('working');
   const [stagingActive, setStagingActive] = useState(false);
   const [wipMsg, setWipMsg] = useState('');
+  const [branchScrollHash, setBranchScrollHash] = useState<string | null>(null);
   const { detailPanelWidth, onResizeStart } = useResizePanel();
 
   const {
@@ -48,6 +49,12 @@ export const GitGraphView: React.FC = () => {
   const handleSelectHash = useCallback((hash: string) => {
     setSelectedHash(hash);
     setStagingActive(false);
+  }, [setSelectedHash]);
+
+  const handleSelectBranch = useCallback((hash: string) => {
+    setSelectedHash(hash);
+    setStagingActive(false);
+    setBranchScrollHash(hash);
   }, [setSelectedHash]);
 
   const handleContextMenu = useCallback(
@@ -130,6 +137,8 @@ export const GitGraphView: React.FC = () => {
         detailPanelWidth={detailPanelWidth} path={path} displayRows={displayRows}
         onSelectHash={handleSelectHash} onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick} onSelectParent={handleSelectHash}
+        onCloseDetail={() => setSelectedHash(null)}
+        onSelectBranch={handleSelectBranch} branchScrollHash={branchScrollHash}
         onSelectFile={setSelectedDiffFile}
         onSelectStagingFile={(file, kind) => { setStagingDiffFile(file); setStagingDiffKind(kind); }}
         onCommitMsgChange={setWipMsg} onCommitDone={() => { setStagingActive(false); void loadGraph(path); }}

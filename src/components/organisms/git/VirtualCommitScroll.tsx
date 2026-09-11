@@ -7,6 +7,7 @@ import { CommitRow } from './CommitRow';
 import { REFS_COL_W, ROW_H } from './constants';
 import { GraphSvg } from './GraphSvg';
 import { RefBadge } from './RefBadge';
+import { isHeadCommit } from './utils';
 
 interface VirtualCommitScrollProps {
   displayRows: Array<{ commit: AssignedCommit; refIndex: number }>;
@@ -55,7 +56,11 @@ export const VirtualCommitScroll: React.FC<VirtualCommitScrollProps> = ({
           {virtualItems.map((vi) => {
             const { commit: c, refIndex } = displayRows[vi.index];
             const ref = c.refs[refIndex];
-            const refCellCls = `flex items-center gap-1 overflow-hidden ${c.hash === selectedHash ? 'bg-muted/70' : ''}`;
+            const isSelected = c.hash === selectedHash;
+            let refBgCls = '';
+            if (isSelected) refBgCls = 'bg-muted/70';
+            else if (isHeadCommit(c)) refBgCls = 'bg-emerald-400/10';
+            const refCellCls = `flex items-center gap-1 overflow-hidden ${refBgCls}`;
             return (
               <div
                 key={`${c.hash}-${refIndex}`}
@@ -82,12 +87,17 @@ export const VirtualCommitScroll: React.FC<VirtualCommitScrollProps> = ({
           {virtualItems.map((vi) => {
             const { commit: c, refIndex } = displayRows[vi.index];
             const isSelected = c.hash === selectedHash;
-            const extraRowCls = `flex h-full cursor-pointer items-center gap-1.5 border-b border-border/20 px-2 ${isSelected ? 'bg-muted/70' : 'hover:bg-muted/40'}`;
+            const isHead = isHeadCommit(c);
+            const extraBorderCls = isHead ? 'border-l-emerald-400 bg-emerald-400/10' : 'border-l-transparent';
+            const extraHoverCls = isHead ? '' : 'hover:bg-muted/40';
+            const extraBgCls = isSelected ? 'bg-muted/70' : extraHoverCls;
+            const extraRowCls = `flex h-full cursor-pointer items-center gap-1.5 border-b border-border/20 border-l-2 px-2 ${extraBorderCls} ${extraBgCls}`;
             const commitCellEl =
               refIndex === 0 ? (
                 <CommitRow
                   commit={c}
                   isSelected={isSelected}
+                  isHead={isHead}
                   onSelect={onSelectHash}
                   onDoubleClick={onDoubleClick}
                   onContextMenu={onContextMenu}

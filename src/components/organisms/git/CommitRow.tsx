@@ -8,13 +8,15 @@ import { relDate } from './utils';
 export const CommitRow: React.FC<{
   commit: AssignedCommit;
   isSelected: boolean;
+  isHead: boolean;
   onSelect: (hash: string) => void;
   onDoubleClick: (hash: string) => void;
   onContextMenu: (clientX: number, clientY: number, hash: string) => void;
-}> = ({ commit, isSelected, onSelect, onDoubleClick, onContextMenu }) => {
-  const rowCls = isSelected
-    ? 'flex min-w-0 items-center gap-1.5 px-2 bg-muted/70 cursor-pointer'
-    : 'flex min-w-0 items-center gap-1.5 px-2 hover:bg-muted/40 cursor-pointer';
+}> = ({ commit, isSelected, isHead, onSelect, onDoubleClick, onContextMenu }) => {
+  const borderCls = isHead ? 'border-emerald-400 bg-emerald-400/10' : 'border-transparent';
+  const hoverCls = isHead ? '' : 'hover:bg-muted/40';
+  const bgCls = isSelected ? 'bg-muted/70' : hoverCls;
+  const rowCls = `flex min-w-0 items-center gap-1.5 border-l-2 px-2 cursor-pointer ${borderCls} ${bgCls}`;
   return (
     <div
       style={{ height: ROW_H, minHeight: ROW_H }}

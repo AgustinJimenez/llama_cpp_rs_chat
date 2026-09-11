@@ -497,9 +497,30 @@ pub async fn handle_update_agent(
     }
 }
 
-/// DELETE /api/agents/:id — delete an agent (unlinks conversations)
+/// DELETE /api/agents/:id — delete an agent (unlinks conversations, stops any active workers)
+#[cfg(not(feature = "mock"))]
 pub async fn handle_delete_agent(
     id: &str,
+    pool: WorkerPool,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    // Stop the global worker and any overflow workers before removing the DB record.
+    if pool.get_worker_for_agent(id).is_some() {
+        let _ = pool.stop_agent_worker(id).await;
+    }
+    let conversation_ids = db.list_conversation_ids_by_agent(id).unwrap_or_default();
+    pool.stop_overflow_workers_for_conversations(&conversation_ids).await;
+
+    match db.delete_agent(id) {
+        Ok(()) => Ok(json_success("Agent deleted")),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    }
+}
+
+#[cfg(feature = "mock")]
+pub async fn handle_delete_agent(
+    id: &str,
+    _pool: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     match db.delete_agent(id) {

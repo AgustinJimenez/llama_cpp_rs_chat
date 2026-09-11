@@ -42,6 +42,10 @@ export interface GenerationResult {
   timings: TimingInfo;
   tokensUsed?: number;
   maxTokens?: number;
+  /// The message id the *backend* assigned to this assistant turn. Required to
+  /// reconcile against the DB: the frontend's local placeholder id is a separate
+  /// client-side UUID and never matches the server's row.
+  serverMessageId?: string;
 }
 
 export interface GenerationRequest {
@@ -93,12 +97,13 @@ export class LocalGenerationStream implements GenerationStream {
             });
           }
         },
-        onComplete: (_messageId, conversationId, tokensUsed, maxTokens, timings) => {
+        onComplete: (messageId, conversationId, tokensUsed, maxTokens, timings) => {
           callbacks.onComplete({
             conversationId,
             timings: timings ?? {},
             tokensUsed,
             maxTokens,
+            serverMessageId: messageId,
           });
         },
         onError: (error) => {

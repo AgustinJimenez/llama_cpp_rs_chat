@@ -9,9 +9,13 @@ const KV_CACHE_OPTIONS = [
   { value: 'f16', label: 'F16' },
   { value: 'q8_0', label: 'Q8_0' },
   { value: 'q4_0', label: 'Q4_0' },
-  { value: 'turbo4', label: 'TQ4 — TurboQuant 4-bit (3.8x)' },
-  { value: 'turbo3', label: 'TQ3 — TurboQuant 3-bit (4.9x)' },
-  { value: 'turbo2', label: 'TQ2 — TurboQuant 2-bit (6.4x)' },
+  // TurboQuant is currently aliased to Q4_0 by the backend (see parse_kv_cache_type in
+  // context_eval.rs) — the custom TQ GGML types no longer exist in current llama.cpp.
+  // Labels must not advertise compression the build cannot deliver; these options are kept
+  // so existing saved configs still resolve, but they behave exactly like Q4_0.
+  { value: 'turbo4', label: 'TQ4 — TurboQuant (currently Q4_0)' },
+  { value: 'turbo3', label: 'TQ3 — TurboQuant (currently Q4_0)' },
+  { value: 'turbo2', label: 'TQ2 — TurboQuant (currently Q4_0)' },
 ];
 
 const BATCH_SIZE_512 = 512;
@@ -107,12 +111,14 @@ const KvCacheGroup = ({
             className="inline-flex size-3.5 cursor-help items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground"
             // eslint-disable-next-line i18next/no-literal-string
             title={
-              'TurboQuant uses asymmetric K/V types for best quality-per-bit.\n\n' +
-              'Recommended configs (memory savings vs F16):\n' +
+              'NOTE: TurboQuant is not active in this build — TQ2/TQ3/TQ4 all currently\n' +
+              'resolve to Q4_0 (~3.6x vs F16). The custom TQ types were removed from\n' +
+              'llama.cpp, so the TQ options behave identically to Q4_0 for now.\n\n' +
+              'When TurboQuant is available it uses asymmetric K/V types for the best\n' +
+              'quality-per-bit, because K (keys) tolerates lower precision than V (values):\n' +
               '  K=TQ2, V=TQ3 — best balance (5.5x savings, minimal quality loss)\n' +
               '  K=Q8_0, V=TQ3 — safer (3.5x savings, near-lossless)\n' +
               '  K=TQ3, V=TQ3 — aggressive (4.9x savings)\n\n' +
-              'K cache (keys) tolerates lower precision than V cache (values).\n' +
               'Using different types for K and V is intentional, not a mistake.'
             }
           >

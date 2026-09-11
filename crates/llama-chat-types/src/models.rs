@@ -198,6 +198,9 @@ pub struct SamplerConfig {
     pub max_tool_calls: i32,
     #[serde(default = "default_loop_detection_limit")]
     pub loop_detection_limit: i32,
+    /// Hard cap on concurrently loaded models (slots). See AGENT_TASKS/005.
+    #[serde(default = "default_max_loaded_models")]
+    pub max_loaded_models: i32,
     /// Enable thinking/reasoning mode (Qwen3, DeepSeek-R1, GLM-4, Gemma-4).
     /// None = use model default (true when supported). Some(false) = disable.
     #[serde(default)]
@@ -206,6 +209,7 @@ pub struct SamplerConfig {
 
 fn default_max_tool_calls() -> i32 { 2000 }
 fn default_loop_detection_limit() -> i32 { 15 }
+fn default_max_loaded_models() -> i32 { 2 }
 
 fn default_true() -> bool {
     true
@@ -336,6 +340,7 @@ impl Default for SamplerConfig {
             provider_api_keys: None,
             max_tool_calls: 2000,
             loop_detection_limit: 15,
+            max_loaded_models: 2,
             thinking_mode: None,
         }
     }

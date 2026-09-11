@@ -37,6 +37,9 @@ interface VerticalViewProps {
   onContextMenu: (clientX: number, clientY: number, hash: string) => void;
   onDoubleClick: (hash: string) => void;
   onSelectParent: (hash: string) => void;
+  onCloseDetail: () => void;
+  onSelectBranch: (hash: string) => void;
+  branchScrollHash: string | null;
   onSelectFile: (file: string) => void;
   onSelectStagingFile: (file: string, kind: 'working' | 'staged') => void;
   onCommitMsgChange: (v: string) => void;
@@ -63,7 +66,7 @@ export const VerticalView: React.FC<VerticalViewProps> = (props) => {
     filteredCommits, searchQuery, stagingActive, stagingDiffFile,
     stagingDiffKind, selectedDiffFile, wipMsg, wipChangesCount,
     toolbarBusy, detailPanelWidth, path, displayRows,
-    onSelectHash, onContextMenu, onDoubleClick, onSelectParent, onSelectFile,
+    onSelectHash, onContextMenu, onDoubleClick, onSelectParent, onCloseDetail, onSelectBranch, branchScrollHash, onSelectFile,
     onSelectStagingFile, onCommitMsgChange, onCommitDone, onCloseStagingPanel,
     onCloseDiff, onCloseStagingDiff, onOpenStaging, onSetWipMsg, onSetSearchQuery,
     onFetch, onPull, onPush, onStash, onPop, onCreateBranch, onResizeStart,
@@ -77,6 +80,7 @@ export const VerticalView: React.FC<VerticalViewProps> = (props) => {
       width={detailPanelWidth}
       onSelectParent={onSelectParent}
       onSelectFile={onSelectFile}
+      onClose={onCloseDetail}
     />
   ) : null;
 
@@ -133,13 +137,14 @@ export const VerticalView: React.FC<VerticalViewProps> = (props) => {
         onStash={onStash}
         onPop={onPop}
         onCreateBranch={onCreateBranch}
+        branchScrollHash={branchScrollHash}
       />
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <BranchPanel commits={commits} selectedHash={selectedHash} onSelect={onSelectHash} />
+      <BranchPanel commits={commits} selectedHash={selectedHash} onSelect={onSelectBranch} />
       {centerContent}
       {!!showResizeHandle && (
         <button

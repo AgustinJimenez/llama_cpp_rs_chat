@@ -23,6 +23,7 @@ mod sampler;
 mod stop_conditions;
 pub mod sub_agent;
 pub mod sub_checks;
+pub mod utf8_stream;
 pub mod templates;
 mod token_loop;
 mod tool_dispatch;

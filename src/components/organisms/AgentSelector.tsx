@@ -30,12 +30,14 @@ import { MemoryVisualization } from '@/components/organisms/model-config/MemoryV
 import { ModelMetadataDisplay } from '@/components/organisms/model-config/ModelMetadataDisplay';
 import { SamplingParametersSection } from '@/components/organisms/model-config/SamplingParametersSection';
 import { TagPairsSection } from '@/components/organisms/model-config/TagPairsSection';
+import { SlotOccupancyBar } from '@/components/organisms/SlotOccupancyBar';
 import { DEFAULT_PRESET, findPresetByName } from '@/config/modelPresets';
 import { useAgentContext } from '@/contexts/AgentContext';
 import { useModelContext } from '@/contexts/ModelContext';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useResidentModelsVram } from '@/hooks/useResidentModelsVram';
 import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import type { Agent, SamplerConfig } from '@/types';
 import { isTauriEnv } from '@/utils/tauri';
@@ -230,6 +232,10 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     maxContextSize,
   });
 
+  // Other resident models contend for the same VRAM — the agent editor needs the same
+  // fit check as the load modal, since this is where the 27B agent was misconfigured.
+  const { otherModelsVramGb } = useResidentModelsVram(isOpen, localConfig.model_path || '');
+
   const memoryBreakdown = useMemoryCalculation({
     modelMetadata: modelInfo,
     gpuLayers: localConfig.gpu_layers || 0,
@@ -239,6 +245,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     overheadGb,
     cacheTypeK: localConfig.cache_type_k || resolvedPreset.cache_type_k || 'turbo2',
     cacheTypeV: localConfig.cache_type_v || resolvedPreset.cache_type_v || 'turbo2',
+    otherModelsVramGb,
   });
 
   // ── Load providers + model history ────────────────────────────────────────
@@ -797,6 +804,9 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
             <X className="size-4" />
           </button>
         </div>
+
+        {/* Slot occupancy — makes "activating this will unload X" predictable */}
+        {view === 'list' && <SlotOccupancyBar isOpen={isOpen} />}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">

@@ -27,6 +27,7 @@ import { useModelContext } from '@/contexts/ModelContext';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useResidentModelsVram } from '@/hooks/useResidentModelsVram';
 import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import type { SamplerConfig } from '@/types';
 import { pickFile, getModelHistory, getConfig } from '@/utils/tauriCommands';
@@ -144,6 +145,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     maxContextSize,
   });
 
+  // Live VRAM held by other resident models — without this the fit check budgets
+  // against total VRAM and stays silent when another agent is already holding it.
+  const { otherModelsVramGb } = useResidentModelsVram(isOpen, modelPath);
+
   // Calculate memory breakdown in real-time
   const memoryBreakdown = useMemoryCalculation({
     modelMetadata: modelInfo,
@@ -154,6 +159,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     overheadGb,
     cacheTypeK: config.cache_type_k || resolvedPreset.cache_type_k || 'turbo2',
     cacheTypeV: config.cache_type_v || resolvedPreset.cache_type_v || 'turbo2',
+    otherModelsVramGb,
   });
 
   // Initialize model path from config when modal opens
@@ -217,17 +223,24 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [modelPath]);
 
-  // Set context size to model's max when metadata is loaded (first load only).
+  // Seed context size when metadata is loaded (first load only).
   // Skip if saved config was loaded — user's saved context_size takes priority.
+  //
+  // The model's `context_length` from GGUF is a CEILING, not a default. Taking it
+  // literally is how a 27B ended up saved at 262144 (a 4.6 GB KV cache) on a 24 GB card,
+  // which silently pages to RAM and collapses decode to ~0 tok/s. Clamp to whatever the
+  // VRAM optimizer says actually fits once it's ready.
   useEffect(() => {
     if (savedConfigLoaded.current) return;
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
       if (!isNaN(maxContext)) {
-        setContextSize(maxContext);
+        setContextSize(
+          optimized.ready ? Math.min(maxContext, optimized.optimalContextSize) : maxContext,
+        );
       }
     }
-  }, [modelInfo]);
+  }, [modelInfo, optimized.ready, optimized.optimalContextSize]);
 
   // Auto-apply recommended sampling parameters when model info loads
   // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- setConfig + setContextSize, separate concerns
@@ -311,9 +324,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       // Always apply VRAM-optimized gpu_layers — it's hardware-specific and
       // should reflect current VRAM availability, not a stale DB value.
       setConfig((prev) => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
+      // Apply the optimized context too, unless the user has a saved config. This used to
+      // be promised by the comment but never implemented: optimalContextSize was computed
+      // and discarded, so the model-max seed above won unopposed.
+      if (!savedConfigLoaded.current) {
+        setContextSize((prev) =>
+          Math.min(prev || optimized.optimalContextSize, optimized.optimalContextSize),
+        );
+      }
       // eslint-disable-next-line no-console
       console.log('[ModelConfig] VRAM auto-optimized:', {
         gpuLayers: optimized.optimalGpuLayers,
+        contextSize: optimized.optimalContextSize,
         kvAttentionLayers: optimized.kvAttentionLayers,
       });
     }

@@ -231,7 +231,7 @@ pub async fn handle_websocket(
                         Ok(r) => r,
                         Err(e) => {
                             sys_error!("[WS_CHAT] Failed to start generation: {}", e);
-                            let msg = format!("Failed to start generation: {}", e);
+                            let msg = format!("Failed to start generation: {e}");
                             if let Some(ref conv_id) = current_conv_id {
                                 let _ = db.append_error_message(conv_id, &msg);
                             }

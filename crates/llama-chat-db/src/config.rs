@@ -72,6 +72,8 @@ pub struct DbSamplerConfig {
     // Max tool calls per remote provider turn (safety limit)
     pub max_tool_calls: i32,
     pub loop_detection_limit: i32,
+    /// Hard cap on concurrently loaded models (slots). See AGENT_TASKS/005.
+    pub max_loaded_models: i32,
     // Thinking mode: None = use model default, Some(true/false) = explicit override
     pub thinking_mode: Option<bool>,
 }
@@ -133,6 +135,7 @@ impl Default for DbSamplerConfig {
             provider_api_keys: None,
             max_tool_calls: 2000,
             loop_detection_limit: 15,
+            max_loaded_models: 2,
             thinking_mode: None,
         }
     }
@@ -153,7 +156,8 @@ impl Database {
                         telegram_chat_id,
                         provider_api_keys,
                         max_tool_calls,
-                        loop_detection_limit
+                        loop_detection_limit,
+                        max_loaded_models
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -168,6 +172,7 @@ impl Database {
                         provider_api_keys: row.get(7)?,
                         max_tool_calls: row.get::<_, Option<i32>>(8)?.unwrap_or(2000),
                         loop_detection_limit: row.get::<_, Option<i32>>(9)?.unwrap_or(15),
+                        max_loaded_models: row.get::<_, Option<i32>>(10)?.unwrap_or(2).max(1),
                         ..Default::default()
                     })
                 },
@@ -190,8 +195,9 @@ impl Database {
             "INSERT INTO config
              (id, disable_file_logging, web_browser_backend, models_directory,
               use_rtk, use_htmd, telegram_bot_token, telegram_chat_id,
-              provider_api_keys, max_tool_calls, loop_detection_limit, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              provider_api_keys, max_tool_calls, loop_detection_limit, max_loaded_models,
+              updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 config.disable_file_logging as i32,
                 config.web_browser_backend,
@@ -203,6 +209,7 @@ impl Database {
                 config.provider_api_keys,
                 config.max_tool_calls,
                 config.loop_detection_limit,
+                config.max_loaded_models.max(1),
                 current_timestamp_millis(),
             ],
         )
@@ -219,7 +226,8 @@ impl Database {
                  provider_api_keys = ?8,
                  max_tool_calls = ?9,
                  loop_detection_limit = ?10,
-                 updated_at = ?11
+                 max_loaded_models = ?11,
+                 updated_at = ?12
                  WHERE id = 1",
                 params![
                     config.disable_file_logging as i32,
@@ -232,6 +240,7 @@ impl Database {
                     config.provider_api_keys,
                     config.max_tool_calls,
                     config.loop_detection_limit,
+                    config.max_loaded_models.max(1),
                     current_timestamp_millis(),
                 ],
             )

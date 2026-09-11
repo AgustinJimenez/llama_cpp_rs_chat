@@ -104,7 +104,7 @@ impl ExecBlockTracker {
                 self.in_parallel_block = false;
                 self.in_block = false;
                 self.parallel_just_closed = true;
-                eprintln!("[EXEC_TRACKER] Parallel block closed at response_len={}", response_len);
+                eprintln!("[EXEC_TRACKER] Parallel block closed at response_len={response_len}");
             }
             // While inside a parallel fence, ignore inner </tool_call> tags —
             // they don't exit the outer block.

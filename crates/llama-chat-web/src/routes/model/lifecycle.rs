@@ -131,58 +131,52 @@ pub async fn handle_post_model_load(
 pub async fn handle_post_model_unload(
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: crate::worker_pool::WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        match bridge.force_unload().await {
-            Ok(_) => {
-                let status = llama_chat_types::models::ModelStatus {
-                    loaded: false,
-                    loading: None,
-                    loading_progress: None,
-                    generating: None,
-                    active_conversation_id: None,
-                    status_message: None,
-                    model_path: None,
-                    last_used: None,
-                    memory_usage_mb: None,
-                    has_vision: None,
-                    tool_tags: None,
-                    gpu_layers: None,
-                    block_count: None,
-                    system_prompt_tokens: None,
-                    tool_definitions_tokens: None,
-                    context_size: None,
-                    last_finish_reason: None,
-                    supports_thinking: None,
-                    is_agent_model: None,
-                };
-                let response = ModelResponse {
-                    success: true,
-                    message: "Model unloaded successfully".to_string(),
-                    status: Some(status),
-                };
-                let response_json = serialize_with_fallback(
-                    &response,
-                    r#"{"success":true,"message":"Model unloaded successfully","status":null}"#,
-                );
-                Ok(json_raw(StatusCode::OK, response_json))
-            }
-            Err(e) => {
-                let response = ModelResponse {
-                    success: false,
-                    message: format!("Failed to unload model: {e}"),
-                    status: None,
-                };
-                let response_json = serialize_with_fallback(
-                    &response,
-                    &format!(
-                        r#"{{"success":false,"message":"Failed to unload model: {e}","status":null}}"#
-                    ),
-                );
-                Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
+        // Unload ALL pool workers so agent-bound models are also released from VRAM.
+        // The default bridge is included in pool.list_worker_ids() as "default".
+        for worker_id in pool.list_worker_ids() {
+            if let Some(b) = pool.get(&worker_id) {
+                let _ = b.force_unload().await;
             }
         }
+        // belt-and-suspenders: also unload via the direct bridge reference
+        let _ = bridge.force_unload().await;
+
+        let status = llama_chat_types::models::ModelStatus {
+            loaded: false,
+            loading: None,
+            loading_progress: None,
+            generating: None,
+            active_conversation_id: None,
+            status_message: None,
+            model_path: None,
+            last_used: None,
+            memory_usage_mb: None,
+            has_vision: None,
+            tool_tags: None,
+            gpu_layers: None,
+            block_count: None,
+            system_prompt_tokens: None,
+            tool_definitions_tokens: None,
+            context_size: None,
+            last_finish_reason: None,
+            supports_thinking: None,
+            is_agent_model: None,
+        };
+        let response = ModelResponse {
+            success: true,
+            message: "Model unloaded successfully".to_string(),
+            status: Some(status),
+        };
+        let response_json = serialize_with_fallback(
+            &response,
+            r#"{"success":true,"message":"Model unloaded successfully","status":null}"#,
+        );
+        Ok(json_raw(StatusCode::OK, response_json))
     }
 
     #[cfg(feature = "mock")]
@@ -198,14 +192,21 @@ pub async fn handle_post_model_unload(
 pub async fn handle_post_model_hard_unload(
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: crate::worker_pool::WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
+        // Kill agent/overflow workers too — this endpoint promises "all memory reclaimed",
+        // but it used to force-unload only the default worker. Any agent-bound model kept
+        // its VRAM and no API call could free it.
+        let killed = pool.kill_named_workers().await;
         match bridge.force_unload().await {
             Ok(_) => Ok(json_raw(
                 StatusCode::OK,
-                r#"{"success":true,"message":"Worker process killed, memory reclaimed"}"#
-                    .to_string(),
+                format!(
+                    r#"{{"success":true,"message":"Worker processes killed, memory reclaimed","named_workers_killed":{killed}}}"#
+                ),
             )),
             Err(e) => Ok(json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,

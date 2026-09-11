@@ -76,7 +76,7 @@ pub fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
     // Generate text output
     // Greedy decoding with repetition penalty to avoid loops
     let mut sampler = LlamaSampler::chain_simple(vec![
-        LlamaSampler::penalties(2048, 1.3, 0.0, 0.0), // repeat_penalty=1.3
+        LlamaSampler::penalties(model.n_vocab(), 2048, 1.3, 0.0, 0.0), // repeat_penalty=1.3
         LlamaSampler::temp(0.0),
         LlamaSampler::greedy(),
     ]);

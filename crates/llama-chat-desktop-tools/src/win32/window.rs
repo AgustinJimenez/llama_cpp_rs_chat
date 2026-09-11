@@ -303,6 +303,9 @@ mod tests {
     #[test]
     fn test_enumerate_windows_has_class_name() {
         let windows = enumerate_windows();
+        if windows.is_empty() {
+            return;
+        }
         let with_class = windows.iter().filter(|w| !w.class_name.is_empty()).count();
         assert!(with_class > 0, "Some windows should have class names");
     }

@@ -1,0 +1,181 @@
+# 013 — Multi-byte UTF-8 characters are corrupted at token boundaries
+
+Status: FIXED and VERIFIED 2026-09-11
+Found: 2026-09-11, visible as `�` in the desktop app; confirmed in raw server output
+
+## Symptom
+
+Emoji and box-drawing characters render as the replacement character `�`.
+
+In the desktop app: `Hi! � I'm here and ready to help…` (an emoji).
+
+In a 60 KB agentic run, **59 occurrences**. The pattern is diagnostic:
+
+```
+tmp_project/
+�── app/
+│   ├── Http/
+│   │   �── Controllers/
+│       �── ProductController.php
+```
+
+`│` (U+2502) and `├` (U+251C) survive; `└` (U+2514) does not. All three are 3-byte
+sequences differing only in the last byte, so this is not "the app can't do Unicode" — it
+is position-dependent.
+
+## Confirmed to be ours, not a tooling artifact
+
+Checked deliberately, because the text passed through PowerShell before I saw it:
+
+- Raw bytes written by `curl` straight from `/api/chat/stream`: **59** occurrences of
+  `EF BF BD` (UTF-8 U+FFFD).
+- Reassembled from the SSE JSON: same 59.
+
+The corruption is already present in what the server sends. It is not the terminal, not
+`Out-File`, and not the frontend.
+
+## Root cause
+
+`crates/llama-chat-engine/src/token_loop.rs:368` decodes **each token independently**:
+
+```rust
+let token_str = match model.token_to_str(next_token, Special::Tokenize) { … };
+```
+
+A multi-byte character whose bytes span two tokens cannot survive this: the first token
+holds a truncated prefix and the second an orphaned continuation. Each decodes to invalid
+UTF-8 on its own and collapses to `�`. Whether a given character breaks depends purely on
+where the tokenizer split it — which is why `├` survives and `└` does not.
+
+There is **no incomplete-sequence buffering anywhere** in the generation path (grepped
+`token_loop.rs` and `generation/mod.rs` for `utf8` / `from_utf8` / buffering: no matches).
+
+The same per-token-decode pattern is repeated in at least five other places, so any fix
+should be a shared helper rather than a local patch:
+
+- `crates/llama-chat-engine/src/token_loop.rs:306` and `:368`
+- `crates/llama-chat-engine/src/sub_agent.rs:188`
+- `crates/llama-chat-engine/src/tool_output/image_summary.rs:81`
+- `crates/llama-chat-engine/src/tool_output/summarize.rs:95`, `:247`, `:362`
+
+## Why it matters beyond cosmetics
+
+1. The corrupted text is what gets **persisted and streamed** — it is in the DB, so it also
+   re-enters the model's context on the next turn as `�`.
+2. It lands in **generated artifacts**. The Laravel run wrote files whose content came from
+   this path; a mangled byte inside a written source file is a real defect, not a display
+   glitch. (Those particular files passed `php -l`, but that is luck — the damage was in
+   tree-drawing inside a Markdown summary, not in code.)
+3. Any structural validation added by [[002_malformed_response_detection_and_agent_feedback]]
+   or [[009_automated_e2e_agent_harness]] would be matching against corrupted text.
+
+## FIXED and VERIFIED 2026-09-11
+
+`crates/llama-chat-engine/src/utf8_stream.rs` implements `Utf8TokenDecoder`: accumulates raw
+token bytes, emits only complete UTF-8, carries an incomplete tail to the next token, and
+resynchronises past genuinely invalid bytes. 7 unit tests, including the exact `└`
+(E2 94 94) and 4-byte-emoji splits and every split point of a mixed string.
+
+`token_loop.rs` now decodes bytes (`token_to_bytes`) through the decoder instead of calling
+`token_to_str` per token. `token_to_bytes` exists at
+`deps/llama-cpp-rs/llama-cpp-2/src/model.rs:238` — **the gating question is answered: no
+fork work needed.**
+
+Verified live, after asserting the serving process's `build_id`:
+
+| Prompt | Before | After |
+|---|---|---|
+| Laravel directory tree | 59 `U+FFFD` | **0** |
+| Three tips with emoji | 5 `U+FFFD` | **0** |
+
+The tree now renders correctly: `└` ×40, `├` ×78, `│` ×164, `─` ×236 — every one of those
+`└` was previously a replacement character. Empty token events (the old first-half-of-a-split
+artifact) also dropped to 0.
+
+### Why the first attempt looked like it failed
+
+It did not fail; it was never running. Requests were being served by a **second process on
+port 18080** — see the note in [[012_eos_probe_prompt_leaks_into_visible_message]]. The fix
+was correct the whole time.
+
+### Remaining work
+
+Five other call sites still detokenise per token and should reuse `Utf8TokenDecoder`:
+`token_loop.rs:306` (EOS), `sub_agent.rs:188`, `tool_output/image_summary.rs:81`,
+`tool_output/summarize.rs:95`, `:247`, `:362`. None are on the main streaming path, so they
+were left out of this change deliberately.
+
+## Superseded — first attempt write-up (kept for the reasoning)
+
+`crates/llama-chat-engine/src/utf8_stream.rs` (new) implements `Utf8TokenDecoder`:
+accumulates raw token bytes, emits only complete UTF-8, carries an incomplete tail to the
+next token, replaces genuinely invalid bytes once and resynchronises. 7 unit tests, including
+the exact `└` (E2 94 94) and 4-byte-emoji splits, every split point of a mixed string, and
+one byte at a time. All pass.
+
+Wired into `token_loop.rs`: `token_to_str` → `token_to_bytes` → `gen.utf8_decoder.push()`,
+with an empty result skipping the append/stream/detect work for that token.
+`token_to_bytes` exists at `deps/llama-cpp-rs/llama-cpp-2/src/model.rs:238`, so **the
+gating question above is answered: no fork work is needed.**
+
+**Live result: unchanged.** Tree prompt still 59 `U+FFFD`, emoji prompt still 5.
+
+### The evidence says the fix is not executing
+
+Token events around a corruption, from the post-fix run:
+
+```
+[90] token=''      <- empty event
+[91] token='�'
+```
+
+An empty token event is exactly what the **old** code emits for the first half of a split
+character. The new code never sends one — an empty decode `continue`s without streaming. So
+this run is not executing the new code, even though:
+
+- the release build reported `Finished` with no errors,
+- the binary timestamp (15:02:14) precedes both process start times (15:02:25),
+- the decoder's own unit tests pass in the same workspace.
+
+### This is now the blocking problem, not UTF-8
+
+**The same contradiction appeared independently in
+[[012_eos_probe_prompt_leaks_into_visible_message]]**: a fix verified present in the binary
+by byte-scan (old strings absent, new strings present), running in a process started after
+the build, behaving exactly like the old code.
+
+Two unrelated fixes, same signature. That is no longer plausibly a coincidence in the fixes —
+it points at the build/deploy/process model, and it invalidates every "the fix didn't work"
+conclusion in both tasks.
+
+**Do this before any further fix attempt:** establish a trustworthy "is my code actually
+running?" signal — e.g. a build id baked in at compile time and returned by `/api/info`,
+asserted before every experiment. Without it, results here cannot be trusted in either
+direction, and time will keep being spent diagnosing fixes that may never have run.
+
+The decoder is retained: it is correct, tested, and will be needed once the deploy question
+is settled. It is **not** claimed to fix anything yet.
+
+## Fix direction
+
+Standard approach for llama.cpp integrations: accumulate raw token **bytes** and only emit a
+string when the buffer ends on a complete UTF-8 sequence; carry an incomplete tail forward to
+the next token.
+
+Open questions before designing:
+
+- Does `llama-cpp-2`'s `token_to_str` expose a byte-level variant (`token_to_bytes` or
+  similar)? If it already lossily substitutes `�` internally, we need the byte API, and if
+  the bindings do not expose one this becomes a `deps/llama-cpp-rs` change.
+- Streaming interacts with this: a held-back partial sequence delays a token by one step.
+  That is acceptable, but the stop-condition and tool-tag detectors run on the accumulated
+  string, so the buffering must sit *below* them — they must never see a partial char.
+- `Special::Tokenize` renders special tokens as text (that is how `<|im_end|>` reached the
+  output in 002). Confirm the byte-level path preserves that behaviour.
+
+## Verification
+
+- Unit: feed a token sequence that splits a 4-byte emoji and a 3-byte `└`; assert exact
+  round-trip.
+- Live: prompt for a directory tree and an emoji; assert zero `U+FFFD` in the raw stream.
+- Regression: re-run the Laravel task and assert the `U+FFFD` count is 0 (was 59).

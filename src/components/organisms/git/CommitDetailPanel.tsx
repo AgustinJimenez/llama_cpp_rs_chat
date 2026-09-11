@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -14,7 +15,8 @@ export const CommitDetailPanel: React.FC<{
   width: number;
   onSelectParent: (hash: string) => void;
   onSelectFile: (file: string) => void;
-}> = ({ commit, files, filesLoading, width, onSelectParent, onSelectFile }) => {
+  onClose: () => void;
+}> = ({ commit, files, filesLoading, width, onSelectParent, onSelectFile, onClose }) => {
   const { t } = useTranslation();
 
   const initials = commit.author
@@ -28,8 +30,11 @@ export const CommitDetailPanel: React.FC<{
   return (
     <div style={{ width: panelWidth }} className="flex shrink-0 flex-col overflow-hidden bg-muted/5">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2">
-        <span className="text-xs text-muted-foreground/60">{t('gitGraph.commitLabel')}</span>
-        <code className="min-w-0 truncate font-mono text-xs text-foreground/80">{commit.hash}</code>
+        <span className="shrink-0 text-xs text-muted-foreground/60">{t('gitGraph.commitLabel')}</span>
+        <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80">{commit.hash}</code>
+        <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <X className="size-3" />
+        </button>
       </div>
       <p className="shrink-0 px-3 py-2.5 text-sm font-medium leading-snug text-foreground">
         {commit.subject}

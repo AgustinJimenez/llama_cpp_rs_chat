@@ -107,6 +107,36 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     gpu_layers: 40,
   },
 
+  // Qwen3.8-27B (dense, qwen35 arch, 65 layers, vision-capable, IQ4_XS ~14.5GB weights)
+  // Sampling = Qwen's published THINKING-mode profile, which is this model's default:
+  // temp 1.0 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 0.0 / rep 1.0.
+  // https://huggingface.co/Qwen/Qwen3.8-27B
+  //
+  // temp was 0.6 here until 2026-09-11 — a local "lower it for regular generation"
+  // convention (shared with Ornith-1.0-35B and Carnice-V2-27B) that matched neither the
+  // model card nor the GGUF's own general.sampling.temperature=1.0. Because a specific
+  // preset outranks GGUF params, this preset was actively overriding the correct value.
+  // Qwen publishes a lower-temp variant (0.6, presence_penalty 0.0) only as a "precise
+  // coding" profile on some cards; if agent tool-calling turns out to need it, change
+  // temperature and presence_penalty together rather than temperature alone.
+  //
+  // Dense model (no expert_count in GGUF) — full gpu_layers offload is safe, no
+  // hybrid-recurrent MoE cap needed.
+  'Qwen3.8-27B': {
+    sampler_type: 'Temperature',
+    temperature: 1.0,
+    top_p: 0.95,
+    top_k: 20,
+    min_p: 0.0,
+    presence_penalty: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    flash_attention: true,
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
+    gpu_layers: 65,
+  },
+
   // Carnice-V2-27B (Qwen3.6-27B dense finetune, Hermes-style agent, Q4_K_M)
   // Thinking mode: temp=1.0, top_p=0.95, presence_penalty=0.0 (dense, NOT MoE)
   'Carnice-V2-27B': {
@@ -122,10 +152,20 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     gpu_layers: 64,
   },
   // Qwen3.5-9B (dense, 9.5GB Q8)
+  // Sampling = Qwen's published THINKING-mode "General" profile, which is how we run it
+  // (supports_thinking, thinking_mode unset = model default = on):
+  // temp 1.0 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 1.5 / rep 1.0.
+  // https://huggingface.co/Qwen/Qwen3.5-9B
+  //
+  // Until 2026-09-11 this was temp 0.7 / top_p 0.8 / presence_penalty 1.5 — a mix of two
+  // different profiles: temp and top_p came from the NON-thinking table while the
+  // presence_penalty came from the thinking one. It matched no published profile.
+  // The card also lists a thinking "Precise Coding" variant (temp 0.6, top_p 0.95,
+  // presence_penalty 0.0); switch to that as a set, never piecemeal.
   'Qwen3.5-9B': {
     sampler_type: 'Temperature',
-    temperature: 0.7,
-    top_p: 0.8,
+    temperature: 1.0,
+    top_p: 0.95,
     top_k: 20,
     min_p: 0.0,
     presence_penalty: 1.5,

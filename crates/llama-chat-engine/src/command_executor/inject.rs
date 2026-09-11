@@ -119,7 +119,7 @@ pub fn inject_output_tokens(
     log_event(
         conversation_id,
         "inject_done",
-        &format!("Injected {} tokens, new pos {}", total, token_pos),
+        &format!("Injected {total} tokens, new pos {token_pos}"),
     );
     Ok(())
 }

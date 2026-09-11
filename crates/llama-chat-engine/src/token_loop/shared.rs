@@ -21,6 +21,9 @@ pub(crate) struct TokenGenState {
     pub eos_continue_count: u8,
     /// Total tool calls executed this generation turn (for max-tool-calls limit).
     pub tool_call_count: u32,
+    /// Carries a partially-received multi-byte character between tokens so it is not
+    /// corrupted into `U+FFFD` (AGENT_TASKS/013).
+    pub utf8_decoder: crate::utf8_stream::Utf8TokenDecoder,
 }
 
 #[allow(dead_code)]

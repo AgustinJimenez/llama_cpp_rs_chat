@@ -198,7 +198,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     setConversationToDelete(null);
   };
 
-  const { isMobileSidebarOpen, closeMobileSidebar, sidebarWidth, setSidebarWidth } = useUIContext();
+  const { isMobileSidebarOpen, closeMobileSidebar, sidebarWidth, setSidebarWidth, closeGitGraph, closeBrowserView } = useUIContext();
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
@@ -228,8 +228,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     (name: string) => {
       onLoadConversation(name);
       closeMobileSidebar();
+      closeGitGraph();
+      closeBrowserView();
     },
-    [onLoadConversation, closeMobileSidebar],
+    [onLoadConversation, closeMobileSidebar, closeGitGraph, closeBrowserView],
   );
 
   // Allow tool cards (sub-agent links) to trigger conversation loads via event.
