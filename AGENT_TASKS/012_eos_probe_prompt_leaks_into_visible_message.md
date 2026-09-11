@@ -160,6 +160,47 @@ e.g. carry the probe outcome in the SSE `done` event, or write directly to a fil
 `inline_eos_probe` — then re-run `hi`. Guessing further without it will just produce a
 third wrong diagnosis after the first two.
 
+### Instrumentation attempt — file writes from the worker FAIL SILENTLY
+
+Tried exactly that and it did not work. Recorded so the next attempt does not repeat it.
+
+Added a `probe_debug()` helper appending to a file, and called it from five places:
+`inline_eos_probe` entry, its verdict, its return paths, `run_generation_loop` entry,
+`generate_llama_response` entry (the function the worker actually imports), per sampled
+token, and — as a **control** — `handle_load_model` in
+`crates/llama-chat-worker/src/worker/worker_main/model_commands.rs`.
+
+Result: **the log file was never created, not even by the control marker**, on a run that
+definitely loaded a model and definitely generated 3019 bytes of output.
+
+- Tried a relative path (`target/probe_debug.log`) and an absolute one
+  (`E:/Temp/probe_debug.log`). Neither.
+- The directory is writable — a PowerShell canary wrote to the same absolute path fine.
+- Binary verified to contain all marker strings; processes verified to start after the
+  build; build verified to print `Finished`.
+
+Conclusion: **file I/O from inside the worker process is failing**, and the failure was
+invisible because the helper swallowed it (`if let Ok(mut f) = OpenOptions…`). Cause not
+yet identified — the worker is spawned with `CREATE_NO_WINDOW` and piped stdin/stdout
+(`process_manager.rs:119-141`), which should not block file access. This is the same shape
+as the rest of this task: a mechanism that looks like it works and silently does nothing.
+
+**Do not use file-based instrumentation in the worker until that is understood.** Prefer a
+channel that already demonstrably crosses the process boundary — the SSE stream itself
+(e.g. an extra field on the `done` event) or the IPC payload.
+
+### Two false conclusions I drew along the way
+
+Recorded because both cost real time:
+
+1. "The engine code is not executing." Two runs produced no output at all because I reused
+   a stale `worker_id` in the request body, so the server answered
+   `{"error":"No model loaded and no model configured for this conversation"}`. **Always
+   assert the run produced tokens before interpreting the absence of a log line.**
+2. "There is a duplicate live copy in `src/web/chat`." There is not —
+   `src/web/mod.rs:19` is `pub mod chat { pub use llama_chat_engine::*; }`, a re-export.
+   The stale `src/web/chat/mod.rs` file on disk is shadowed by it and unused.
+
 ## Fix direction
 
 - Skip leading non-alphanumerics (not just `<...>` spans) before reading the verdict word.
