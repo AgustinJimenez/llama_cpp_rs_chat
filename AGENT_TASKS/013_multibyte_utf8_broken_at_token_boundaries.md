@@ -69,6 +69,57 @@ should be a shared helper rather than a local patch:
 3. Any structural validation added by [[002_malformed_response_detection_and_agent_feedback]]
    or [[009_automated_e2e_agent_harness]] would be matching against corrupted text.
 
+## Fix attempt 2026-09-11 — implemented, tests pass, symptom UNCHANGED
+
+`crates/llama-chat-engine/src/utf8_stream.rs` (new) implements `Utf8TokenDecoder`:
+accumulates raw token bytes, emits only complete UTF-8, carries an incomplete tail to the
+next token, replaces genuinely invalid bytes once and resynchronises. 7 unit tests, including
+the exact `└` (E2 94 94) and 4-byte-emoji splits, every split point of a mixed string, and
+one byte at a time. All pass.
+
+Wired into `token_loop.rs`: `token_to_str` → `token_to_bytes` → `gen.utf8_decoder.push()`,
+with an empty result skipping the append/stream/detect work for that token.
+`token_to_bytes` exists at `deps/llama-cpp-rs/llama-cpp-2/src/model.rs:238`, so **the
+gating question above is answered: no fork work is needed.**
+
+**Live result: unchanged.** Tree prompt still 59 `U+FFFD`, emoji prompt still 5.
+
+### The evidence says the fix is not executing
+
+Token events around a corruption, from the post-fix run:
+
+```
+[90] token=''      <- empty event
+[91] token='�'
+```
+
+An empty token event is exactly what the **old** code emits for the first half of a split
+character. The new code never sends one — an empty decode `continue`s without streaming. So
+this run is not executing the new code, even though:
+
+- the release build reported `Finished` with no errors,
+- the binary timestamp (15:02:14) precedes both process start times (15:02:25),
+- the decoder's own unit tests pass in the same workspace.
+
+### This is now the blocking problem, not UTF-8
+
+**The same contradiction appeared independently in
+[[012_eos_probe_prompt_leaks_into_visible_message]]**: a fix verified present in the binary
+by byte-scan (old strings absent, new strings present), running in a process started after
+the build, behaving exactly like the old code.
+
+Two unrelated fixes, same signature. That is no longer plausibly a coincidence in the fixes —
+it points at the build/deploy/process model, and it invalidates every "the fix didn't work"
+conclusion in both tasks.
+
+**Do this before any further fix attempt:** establish a trustworthy "is my code actually
+running?" signal — e.g. a build id baked in at compile time and returned by `/api/info`,
+asserted before every experiment. Without it, results here cannot be trusted in either
+direction, and time will keep being spent diagnosing fixes that may never have run.
+
+The decoder is retained: it is correct, tested, and will be needed once the deploy question
+is settled. It is **not** claimed to fix anything yet.
+
 ## Fix direction
 
 Standard approach for llama.cpp integrations: accumulate raw token **bytes** and only emit a

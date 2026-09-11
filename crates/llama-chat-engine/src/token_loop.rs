@@ -364,14 +364,34 @@ pub(crate) fn run_generation_loop(
                 break 'token;
             }
 
+            // Decode as BYTES through the incremental decoder, never per-token as a String.
+            //
+            // A character whose bytes span two tokens cannot survive independent
+            // detokenisation — each half is invalid UTF-8 alone and collapses to U+FFFD.
+            // That produced 70 corrupted characters in a single directory-tree answer
+            // (AGENT_TASKS/013). `utf8_decoder` carries an incomplete tail to the next token.
+            //
+            // Holding a partial character back cannot hide a tool tag or stop sequence from
+            // the detectors below: only an unfinished multi-byte character is ever retained,
+            // and every tag and stop token in `tool_tags.rs` is ASCII, so it can never be
+            // split across this boundary.
             #[allow(deprecated)]
-            let token_str = match model.token_to_str(next_token, Special::Tokenize) {
-                Ok(s) => s,
+            let token_bytes = match model.token_to_bytes(next_token, Special::Tokenize) {
+                Ok(b) => b,
                 Err(e) => {
                     log_warn!(cfg.conversation_id, "Token {} can't be displayed: {}. Continuing.", next_token, e);
                     continue 'token;
                 }
             };
+            let token_str = gen.utf8_decoder.push(&token_bytes);
+            if token_str.is_empty() {
+                // Only part of a character has arrived. The token was already added to the
+                // batch and decoded above (and the counters advanced), so there is nothing
+                // left to do for it — skip the append/stream/detect work and sample the
+                // rest of the character. Emitting "" here would send a pointless empty
+                // token event and run the tool detectors against no new text.
+                continue 'token;
+            }
 
             if gen.total_tokens_generated <= 10 {
                 log_debug!(cfg.conversation_id, "Token #{}: id={}, str={:?}", gen.total_tokens_generated, next_token, token_str);

@@ -454,6 +454,7 @@ pub async fn generate_llama_response(
         loop_recoveries: 0,
         eos_continue_count: 0,
         tool_call_count: 0,
+        utf8_decoder: crate::utf8_stream::Utf8TokenDecoder::new(),
     };
 
     // Snapshot the first ~300 chars of user message for the EOS continuation check.
