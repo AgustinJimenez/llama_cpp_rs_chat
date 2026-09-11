@@ -1,6 +1,6 @@
 # 012 — The EOS self-check PROMPT leaks into the visible assistant message
 
-Status: ROOT CAUSE CONFIRMED 2026-09-11 — regression in the 002 fix, not yet fixed
+Status: FIXED and VERIFIED 2026-09-11
 Found: 2026-09-11 by the user, in the freshly installed desktop app (Qwen 3.8 27B)
 
 ## Symptom
@@ -100,7 +100,65 @@ A correct fix needs both:
    wrongly ends a turn early; continuing wrongly shows the user our internal prompt. The
    first failure is far cheaper, so the default should be biased toward "done".
 
-## Fix attempt #1 — 2026-09-11 — DID NOT RESOLVE THE SYMPTOM
+## FIXED and VERIFIED 2026-09-11
+
+Two changes to `inline_eos_probe` in `sub_checks.rs`:
+
+1. `probe_verdict_word` skips leading punctuation as well as markup, so a reply opening with
+   `[` (the model echoing `[SELF-CHECK] …`) still yields a verdict word instead of `None`.
+2. **The probe's reply is never returned as content.** On the not-complete path it is
+   discarded and a neutral two-newline nudge is returned instead. The reply was sampled in a
+   context containing our hidden question, so it answers *that*, not the user. The KV cache
+   is already rolled back, so the main loop regenerates a real continuation.
+
+Verified live against a `build_id`-asserted server, using the reproduction recipe below:
+
+| | |
+|---|---|
+| Before | `Hi! � I'm here and ready to help. What would you like to work on today?**[SELF-CHECK] Are you completely done with the task? Type DONE if yes, or write your**` |
+| After | `Hi! I'm here and ready to help. What would you like to work on today?` |
+
+`[SELF-CHECK]` absent, `U+FFFD` 0 (that `�` was [[013_multibyte_utf8_broken_at_token_boundaries]]),
+`</think>` count 1.
+
+`logs/worker.stderr.log` shows the mechanism working, including the original "hallucinated
+tool call" being caught:
+
+```
+[EOS_PROBE] 'DONE' → task complete (inline probe)
+[EOS_PROBE] 'DONE' → task complete (inline probe)
+[EOS_PROBE] incomplete → nudging; discarded reply: "</think>
+
+<tool_call>
+<function=execute_command>
+<parameter=background>
+false
+"
+```
+
+The model answered the hidden probe with a fabricated `execute_command` call — exactly the
+27B behaviour first reported — and it was discarded rather than streamed.
+
+### Why this took so long: a second process on port 18080
+
+Every "the fix didn't work" result below was a **stale binary answering**. The desktop app
+installed during this session (`llama_chat_app.exe`, 11:08 build) binds
+`127.0.0.1:18080` (`src/main.rs:172`) while the web server binds `0.0.0.0:18080`
+(`src/server.rs:144`). Windows routes `localhost` to the more specific bind, so from 11:21
+onward the app silently served every request and **neither process errored**.
+
+That also explains the agent list appearing to change (the app uses its own DB), the worker
+log holding only startup lines (I was reading my server's log while the app's worker worked),
+and `[EOS_PROBE]` never appearing.
+
+**This is a real latent defect, not just a testing mishap:** two instances can both bind
+18080 successfully and the wildcard one silently receives no local traffic. Worth its own
+task — bind should fail loudly, or the port should be configurable.
+
+`/api/info` now reports `running_binary` (build_id, exe path/size/mtime, pid) so this class
+of mistake is detectable in one request. **Assert it before trusting any experiment.**
+
+## Superseded — first attempt write-up (kept for the reasoning)
 
 Changed `inline_eos_probe` to (a) skip leading punctuation when reading the verdict word and
 (b) **discard the model's probe reply entirely**, returning a neutral `"\n\n"` nudge instead,
