@@ -76,6 +76,7 @@ fn test_save_and_load_config() {
         provider_api_keys: None,
         max_tool_calls: 123,
         loop_detection_limit: 15,
+        max_loaded_models: 2,
         thinking_mode: None,
     };
 

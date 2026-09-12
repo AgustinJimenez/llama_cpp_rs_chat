@@ -1,6 +1,6 @@
 # 014 — Special tokens (`<|im_end|>`) are rendered as text, streamed, and persisted
 
-Status: CONFIRMED 2026-09-11 — not yet fixed
+Status: FIXED and VERIFIED 2026-09-12
 Found: 2026-09-11, during a systematic leak-scan battery on Qwen3.5-9B
 
 ## Symptom
@@ -49,7 +49,35 @@ which is exactly why it went unnoticed. The damage is downstream of display:
    control-token noise.
 3. Export / copy-to-clipboard paths inherit it.
 
-## Open questions
+## FIXED and VERIFIED 2026-09-12
+
+`token_loop.rs` no longer appends or streams the EOS token's text. It is a control token,
+not content.
+
+**The open question below is resolved: `Special::Tokenize` was left alone.** Checking
+`tool_tags.rs` showed every configured tag is plain text (`<tool_call>`, `[TOOL_CALLS]`,
+`<SYSTEM.EXEC||>`, …), but some models tokenize those *as* special tokens, so dropping the
+flag wholesale risked breaking tool detection for no extra benefit. Suppressing the single
+EOS append is the targeted fix.
+
+The same site now also flushes any partial multi-byte character held by
+[[013_multibyte_utf8_broken_at_token_boundaries]]'s decoder, so a truncated sequence at end
+of turn cannot vanish silently.
+
+Verified against a `build_id`-asserted server:
+
+| | Stream | Stored message |
+|---|---|---|
+| `<\|im_end\|>` present | **no** | **no** |
+| `U+FFFD` present | **no** | **no** |
+
+The emoji in the same reply (🌊) survived, confirming 013 still holds.
+
+`useMessageParsing.ts`'s `EOS_TOKEN_CLEANUP` regex is deliberately left in place as a
+frontend safety net — it is no longer load-bearing, and it still covers older stored
+messages that already contain the token.
+
+## Open questions (resolved — kept for the reasoning)
 
 - Does `Special::Tokenize` need to stay for the tool-tag machinery? Some model dialects use
   special tokens as tool delimiters, and `tool_tags.rs` may depend on seeing them. Switching

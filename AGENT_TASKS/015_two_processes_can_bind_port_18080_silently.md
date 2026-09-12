@@ -1,6 +1,6 @@
 # 015 — Two processes can bind port 18080 and the loser silently gets no traffic
 
-Status: CONFIRMED 2026-09-11 — not yet fixed
+Status: FIXED and VERIFIED 2026-09-12
 Found: 2026-09-11, while debugging [[012_eos_probe_prompt_leaks_into_visible_message]]
 
 ## Symptom
@@ -42,7 +42,39 @@ several hours old. That produced a long chain of false conclusions:
 None of that was detectable from inside the app, because from the client's point of view the
 API answered normally the whole time.
 
-## Fix direction
+## FIXED and VERIFIED 2026-09-12
+
+`crates/llama-chat-web/src/api_port.rs` (new):
+
+- `api_port()` — reads `LLAMA_CHAT_PORT`, defaults to 18080. An invalid value warns and
+  falls back rather than refusing to start.
+- `existing_listener(port)` — connects to **`127.0.0.1`** specifically (the address a
+  wildcard bind loses to) and asks for `/api/info`, so the error can name the occupant.
+- `ensure_port_free(port)` — the guard.
+
+`src/server.rs` calls it **before `enforce_single_instance()` and before spawning anything**,
+so a refusal leaves no orphaned worker. Note `enforce_single_instance()` never covered this:
+it only kills a previous *web server* recorded in the PID file, and the desktop app is not
+one. `src/main.rs` (Tauri) warns loudly on a conflict but still binds, since its own webview
+needs the API.
+
+Verified:
+
+| Case | Result |
+|---|---|
+| Foreign listener on 127.0.0.1:18080, start web server | exits **1** with a message naming the port, explaining the wildcard-bind trap, and suggesting `LLAMA_CHAT_PORT` |
+| Processes left behind after that refusal | **0** |
+| `LLAMA_CHAT_PORT=18081` with 18080 occupied | starts and answers on 18081 |
+
+3 unit tests cover free/occupied detection and the default.
+
+### Not done
+
+`crates/llama-chat-web/src/routes/remote.rs:13` still hardcodes `SERVER_PORT = 18080` for
+the UPnP/remote-access feature. It is unrelated to local binding and was left alone; it
+should move to `api_port()` if remote access is ever used with a custom port.
+
+## Fix direction (original — implemented above)
 
 1. **Make the collision loud.** Before binding, probe `127.0.0.1:18080`; if something already
    answers `/api/info`, refuse to start with a message naming the other process

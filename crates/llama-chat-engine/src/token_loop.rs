@@ -301,13 +301,24 @@ pub(crate) fn run_generation_loop(
                     log_info!(cfg.conversation_id, "⚠️ EOS accepted: max continuation retries reached");
                 }
 
-                // Accept EOS — end generation
-                #[allow(deprecated)]
-                if let Ok(eos_str) = model.token_to_str(next_token, Special::Tokenize) {
-                    gen.response.push_str(&eos_str);
+                // Accept EOS — end generation.
+                //
+                // The EOS token's TEXT is deliberately not appended or streamed. It is a
+                // control token, not content: rendering it wrote a literal `<|im_end|>`
+                // into every stored assistant message (AGENT_TASKS/014). The frontend hid
+                // that with a cleanup regex (`useMessageParsing.ts`, EOS_TOKEN_CLEANUP),
+                // which is why it went unnoticed — but conversation history is rebuilt from
+                // storage, so every prior turn fed `<|im_end|>` back to the model as literal
+                // text instead of the turn boundary the chat template is supposed to emit.
+                //
+                // Anything still holding a partial multi-byte character is flushed first so
+                // a truncated sequence does not vanish silently (see `utf8_stream`).
+                let tail = gen.utf8_decoder.flush();
+                if !tail.is_empty() {
+                    gen.response.push_str(&tail);
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {
-                            token: eos_str,
+                            token: tail,
                             tokens_used: gen.token_pos,
                             max_tokens: cfg.context_size as i32, status: None,
                             ..Default::default()

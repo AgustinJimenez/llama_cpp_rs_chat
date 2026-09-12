@@ -56,6 +56,21 @@ pub fn enforce_single_instance() {
 }
 
 pub async fn server_main() -> std::io::Result<()> {
+    // Refuse to start when another instance already answers on loopback — BEFORE spawning
+    // a worker or touching the database, so a refusal leaves nothing behind.
+    //
+    // Binding 0.0.0.0 would succeed even in a conflict, but Windows routes localhost to the
+    // more specific 127.0.0.1 socket, so this process would receive no local traffic while
+    // looking perfectly healthy — and anyone testing would be exercising the OTHER binary.
+    // `enforce_single_instance()` below does not cover this: it only kills a previous
+    // *web server* recorded in the PID file, and the desktop app is neither. See
+    // AGENT_TASKS/015.
+    let port = llama_chat_web::api_port::api_port();
+    if let Err(msg) = llama_chat_web::api_port::ensure_port_free(port) {
+        eprintln!("\n❌ {msg}\n");
+        std::process::exit(1);
+    }
+
     enforce_single_instance();
 
     // Initialize SQLite database
@@ -137,11 +152,11 @@ pub async fn server_main() -> std::io::Result<()> {
             .ok()
             .and_then(|h| h.into_string().ok())
             .unwrap_or_else(|| "llama-chat".to_string());
-        llama_chat_web::remote::mdns::start(18080, &ip_str, &hostname)
+        llama_chat_web::remote::mdns::start(llama_chat_web::api_port::api_port(), &ip_str, &hostname)
     };
 
     // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 18080));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let server = Server::bind(&addr).serve(make_svc);
 
     println!("🦙 LLaMA Chat Web Server starting on http://{addr}");
