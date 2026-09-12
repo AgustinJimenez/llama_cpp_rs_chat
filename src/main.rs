@@ -169,7 +169,17 @@ fn main() {
                 let api_db = db.clone();
                 let worker_pool_for_api = worker_pool.clone();
                 tauri::async_runtime::spawn(async move {
-                    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 18080));
+                    // Warn loudly on a conflict. The desktop app needs this API for its
+                    // own webview, so it still binds — but binding 127.0.0.1 means it
+                    // WINS over any wildcard-bound dev server, silently starving it.
+                    // See AGENT_TASKS/015.
+                    let port = llama_chat_web::api_port::api_port();
+                    if let Some(other) = llama_chat_web::api_port::existing_listener(port) {
+                        eprintln!(
+                            "[TAURI] ⚠ Port {port} already answers on 127.0.0.1. This app will \n                             take over local traffic from it. Occupant: {other}"
+                        );
+                    }
+                    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
                     eprintln!("[TAURI] HTTP API server starting on http://{addr}");
                     if let Err(e) = web::http_dispatch::serve(api_db, worker_pool_for_api, addr).await {
                         eprintln!("[TAURI] HTTP API server error: {e}");

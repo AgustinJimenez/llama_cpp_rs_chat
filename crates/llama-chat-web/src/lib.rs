@@ -8,6 +8,7 @@
 #[macro_use]
 extern crate llama_chat_types;
 
+pub mod api_port;
 pub mod agent_heartbeat_runner;
 pub mod remote;
 pub mod keychain;
