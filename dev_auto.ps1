@@ -141,7 +141,10 @@ if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev:cuda"
     } elseif ($Mode -eq "build") {
-        $ScriptCmd = "tauri:build:cuda"
+        # Installers always use dynamic backends: a static CUDA build links the kernels
+        # into every bundled binary and yields a ~990 MB installer instead of ~42 MB,
+        # with no benefit (AGENT_TASKS/017).
+        $ScriptCmd = "tauri:build:dynamic"
     } else {
         $ScriptCmd = "dev:cuda"
     }

@@ -33,7 +33,7 @@
     "tauri:dev:release": "npm run cargo -- tauri dev --release --features cuda,vision",
     "tauri:build": "node scripts/detect-and-run.js build && node scripts/check-installer-size.mjs",
     "tauri:build:cpu": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features vision && node scripts/check-installer-size.mjs",
-    "tauri:build:cuda": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features cuda,vision && node scripts/check-installer-size.mjs",
+    "tauri:build:cuda": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features cuda,vision,dynamic-backends && node scripts/check-installer-size.mjs",
     "tauri:build:vulkan": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features vulkan,vision && node scripts/check-installer-size.mjs",
     "tauri:build:metal": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features metal,vision && node scripts/check-installer-size.mjs",
     "preview": "vite preview",
