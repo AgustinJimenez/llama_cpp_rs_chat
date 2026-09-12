@@ -1,7 +1,22 @@
 # 016 — The installer bundles every binary in `target/release`, not just the app
 
-Status: DIAGNOSED 2026-09-12 — root cause proven, fix NOT applied (needs a package split)
+Status: SUPERSEDED 2026-09-12 by [[017_consume_published_llama_cpp_backends_instead_of_compiling_cuda_in]] — the package split is no longer worth doing
 Found: 2026-09-12, after the user asked why the installer is ~1 GB
+
+## Superseded — the premise changed
+
+The diagnosis below is still accurate, but the **motivation is gone**. 017 removed static
+CUDA linking, so the seven bundled binaries now total ~152 MB instead of ~1,250 MB and the
+installer is 42.5 MB. Duplicating seven small binaries is untidy, not expensive.
+
+The package split described here is a real refactor (promoting `web`/`server`/`vlm_ocr` out
+of binary-private modules into the lib, then moving five bins to a sibling crate) and it
+would now save on the order of 100 MB uncompressed. Do it for build-time or hygiene reasons
+if ever, not for installer size.
+
+Worth keeping from the investigation: `scripts/prune-release-bins.mjs` still handles stray
+undeclared binaries, and the finding that the bundler both **requires** every declared
+`[[bin]]` and **sweeps** undeclared `.exe` files is the durable lesson.
 
 ## Symptom
 

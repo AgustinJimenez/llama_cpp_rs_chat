@@ -53,7 +53,9 @@
     "inspect-gguf": "cargo run --manifest-path tools/print-metadata/Cargo.toml --release --quiet --",
     "doctor": "react-doctor . --verbose",
     "doctor:score": "react-doctor . --score",
-    "prepare": "husky"
+    "prepare": "husky",
+    "tauri:build:dynamic": "scripts\\kill-build-locks.cmd && npm run cargo -- tauri build --features cuda,vision,dynamic-backends",
+    "build:dynamic": "npm run cargo -- build --features cuda,vision,dynamic-backends --bin llama_chat_web --release"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

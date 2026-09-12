@@ -1,7 +1,54 @@
 # 017 — Stop compiling CUDA in; consume published llama.cpp backends at runtime
 
-Status: RESEARCHED 2026-09-12 — architecture understood, nothing implemented
+Status: PROVEN 2026-09-12 — dynamic backends built, measured and GPU-verified
 Goal (user's words): *"leave the dependencies for the user to deal with, not the app"*
+
+## RESULT — measured 2026-09-12
+
+Built with `--features cuda,vision,dynamic-backends` (44 min, one-off) and measured:
+
+| | Static CUDA | Dynamic backends |
+|---|---|---|
+| **Installer** | **989.7 MB** | **42.5 MB** |
+| `llama_chat_app.exe` | 208.8 MB | 51.5 MB |
+| `llama_chat_web.exe` | 201.9 MB | 44.6 MB |
+| `mcp_desktop_tools.exe` | 183.6 MB | 28.1 MB |
+| `test_*` binaries | ~158 MB each | < 1 MB each |
+| `ggml-cuda.dll` | inside every binary | 153.8 MB, one shared file |
+
+**96 % smaller installer.**
+
+**GPU verified real**, not a silent CPU fallback: VRAM 1,947 → 22,087 MiB on model load,
+**41.7 tok/s** generation and 3,906 tok/s prompt — the normal GPU band. It ran against the
+host's installed CUDA toolkit with no vendor DLLs shipped, which answers the original
+question: **a machine that already has CUDA needs nothing but `ggml-cuda.dll`.**
+
+The runtime download path is live — `HEAD` on the URL in `backend_install.rs:13` returns
+**HTTP 200, 169.5 MB**.
+
+Repeatable via `npm run tauri:build:dynamic` / `npm run build:dynamic`.
+
+### A required fix came out of this: `build.rs` DLL discovery
+
+`build.rs` hardcoded the installer's DLL list as `ggml.dll` / `ggml-base.dll` /
+`ggml-cpu.dll` / `llama.dll`. Under `GGML_BACKEND_DL` that is simply wrong: the build emits
+`llama-common.dll` plus nine `ggml-cpu-<arch>.dll` variants (alderlake, cannonlake,
+cascadelake, haswell, icelake, sandybridge, skylakex, sse42, x64) and **no plain
+`ggml-cpu.dll` at all**. The list is now derived from what the build produced — 13 DLLs
+instead of 4. Without it the installer would have shipped an app with no loadable backend,
+failing only after installation.
+
+`ggml-cuda.dll` is excluded by default so GPU support is fetched at runtime, which is the
+point. `LLAMA_CHAT_BUNDLE_CUDA=1` is meant to embed it for an offline installer, but **the
+env var did not reach the build script in testing and the flag is unverified** — do not rely
+on it yet.
+
+### What is still not done
+
+The ABI question from the original research — whether ggml-org's *published* DLLs are
+compatible with our pinned submodule — was **not** answered and did not need to be: we build
+our own `ggml-cuda.dll` from the submodule, so it matches by construction. Consuming upstream
+archives would remove even that build step, and remains open.
 
 ## The problem this solves
 

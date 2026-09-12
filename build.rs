@@ -57,8 +57,40 @@ fn write_nsis_installer_hooks() {
         }
     }
 
-    // Build the `File` directive list dynamically — only include DLLs that exist.
-    let backend_dlls: &[&str] = &["ggml.dll", "ggml-base.dll", "ggml-cpu.dll", "llama.dll"];
+    // Build the `File` directive list from what the build ACTUALLY produced.
+    //
+    // This list used to be hardcoded as ggml.dll / ggml-base.dll / ggml-cpu.dll /
+    // llama.dll, which silently stopped being correct under `dynamic-backends`
+    // (GGML_BACKEND_DL). That build emits `llama-common.dll` plus one `ggml-cpu-<arch>.dll`
+    // per CPU variant (cascadelake, icelake, haswell, …) and NO plain `ggml-cpu.dll`, so a
+    // hardcoded list would ship an app with no loadable backend at all — a failure that
+    // only shows up after installing. Discover them instead. See AGENT_TASKS/017.
+    //
+    // `ggml-cuda.dll` is deliberately excluded: GPU acceleration is fetched at runtime by
+    // `routes/model/backend_install.rs`, which is the whole point of not compiling CUDA in.
+    // Set LLAMA_CHAT_BUNDLE_CUDA=1 to embed it anyway for an offline-capable installer.
+    let bundle_cuda = std::env::var("LLAMA_CHAT_BUNDLE_CUDA")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let discovered: Vec<String> = fs::read_dir(&target_release)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| {
+                    let lower = n.to_ascii_lowercase();
+                    if !lower.ends_with(".dll") {
+                        return false;
+                    }
+                    if lower == "ggml-cuda.dll" {
+                        return bundle_cuda;
+                    }
+                    lower.starts_with("ggml") || lower.starts_with("llama")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let backend_dlls: Vec<String> = discovered;
     let vc_dll_names: Vec<String> = vc_redist_dlls
         .iter()
         .filter_map(|p| p.file_name().and_then(|n| n.to_str().map(String::from)))
@@ -66,7 +98,7 @@ fn write_nsis_installer_hooks() {
 
     let mut file_lines = String::new();
     let mut delete_lines = String::new();
-    for dll in backend_dlls.iter().map(|s| s.to_string()).chain(vc_dll_names.iter().cloned()) {
+    for dll in backend_dlls.iter().cloned().chain(vc_dll_names.iter().cloned()) {
         let dll_path = target_release.join(&dll);
         if dll_path.exists() {
             file_lines.push_str(&format!(
