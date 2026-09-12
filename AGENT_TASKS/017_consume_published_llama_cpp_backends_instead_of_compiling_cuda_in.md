@@ -26,7 +26,9 @@ question: **a machine that already has CUDA needs nothing but `ggml-cuda.dll`.**
 The runtime download path is live — `HEAD` on the URL in `backend_install.rs:13` returns
 **HTTP 200, 169.5 MB**.
 
-Repeatable via `npm run tauri:build:dynamic` / `npm run build:dynamic`.
+Now the default: `npm run tauri:build` / `tauri:build:cuda` (installer) and `npm run build:cuda`
+(headless server) all build `--features cuda,vision,dynamic-backends`. There is no separate
+"dynamic" command — it is simply how these are built.
 
 ### A required fix came out of this: `build.rs` DLL discovery
 

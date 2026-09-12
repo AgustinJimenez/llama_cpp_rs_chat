@@ -53,8 +53,9 @@ function main() {
           'That is the signature of a STATIC CUDA build: the kernels get linked into every\n' +
           'bundled binary instead of one runtime-loaded ggml-cuda.dll.\n' +
           '\n' +
-          'Rebuild with:  npm run tauri:build:dynamic\n' +
-          'Do NOT use tauri:build / tauri:build:cuda / tauri:build:cpu for an installer.\n' +
+          'Rebuild with:  npm run tauri:build      (or tauri:build:cuda)\n' +
+          'Both pass --features cuda,vision,dynamic-backends. A build missing\n' +
+          'dynamic-backends is what produces this size.\n' +
           'See AGENT_TASKS/017 for the measurements and reasoning.\n',
       );
     } else {
