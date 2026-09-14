@@ -88,6 +88,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     totalVramGb: availableVramGb,
     totalRamGb: availableRamGb,
     unifiedMemory,
+    ready: resourcesReady,
   } = useSystemResources();
 
   // Use model path validation hook for file checking and metadata fetching
@@ -232,12 +233,17 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // VRAM optimizer says actually fits once it's ready.
   useEffect(() => {
     if (savedConfigLoaded.current) return;
+    // Wait for the optimizer. Seeding the model maximum "for now" is what actually put a
+    // 27B at 262144: `maxLayers` is briefly 0 while path validation completes, so the
+    // optimizer reports not-ready, this effect wrote the GGUF ceiling, and by the time the
+    // optimizer was ready `savedConfigLoaded` had flipped — so the clamp below bailed and
+    // the ceiling stuck. A provisional value that is the worst possible choice is worse
+    // than no value: `contextSize` already defaults to DEFAULT_CONTEXT_SIZE.
+    if (!optimized.ready) return;
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replaceAll(',', ''));
       if (!isNaN(maxContext)) {
-        setContextSize(
-          optimized.ready ? Math.min(maxContext, optimized.optimalContextSize) : maxContext,
-        );
+        setContextSize(Math.min(maxContext, optimized.optimalContextSize));
       }
     }
   }, [modelInfo, optimized.ready, optimized.optimalContextSize]);
@@ -319,6 +325,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Auto-apply VRAM-optimized gpu_layers and context_size once per model
   const autoOptimizedForPath = useRef('');
   useEffect(() => {
+    // `resourcesReady` gates this because the optimizer answers `ready: true` with
+    // `optimalGpuLayers: 0` when `availableVramGb` is still 0 — it cannot tell "VRAM not
+    // fetched yet" from "no GPU". This effect latches once per model path, so latching
+    // during that window pinned gpu_layers to 0 permanently, which presents as "CUDA is
+    // not detected" even on a working CUDA build.
+    if (!resourcesReady) return;
     if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
       autoOptimizedForPath.current = modelPath;
       // Always apply VRAM-optimized gpu_layers — it's hardware-specific and
@@ -339,7 +351,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         kvAttentionLayers: optimized.kvAttentionLayers,
       });
     }
-  }, [optimized, modelPath]);
+  }, [optimized, modelPath, resourcesReady]);
 
   const handleInputChange = (
     field: keyof SamplerConfig,
